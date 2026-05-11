@@ -1,0 +1,192 @@
+---
+title: "Figure S5"
+execute:
+  echo: false
+---
+
+**Figure S5. Association between geographic distance and SNP distance for MA IIIA sequences.** Association between geographic distance and genomic distance, as measured by SNP distance, for MA IIIA cases from 2018-2020. 
+
+**A)** Geographic distance as measured between city of residence recorded for each patient sample. 
+
+**B)** Geographic distance as measured between city where a provider ordered a diagnostic test for each patient sample.  
+
+```{r}
+rm(list = ls())
+pkglist = c("gridExtra", "dplyr", "ggplot2","ggpmisc", "ape", "cowplot","tibble", "data.table")
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+METADATA_FILE=Sys.getenv("METADATA_FILE")
+CITIES_LAT_LONG_FILE=Sys.getenv("CITIES_LAT_LONG_FILE")
+RENAMED_ALL_PAIRS_SNP_DIST=Sys.getenv("RENAMED_ALL_PAIRS_SNP_DIST")
+
+```
+
+```{r}
+# read in metadata and associated files
+metadata <- read.table(METADATA_FILE, sep=",", header=TRUE, stringsAsFactors=FALSE)
+
+# drop HepA/USA/MA/0046/2018
+metadata <- metadata[metadata$MASPHL_Sequencing_ID != "HepA/USA/MA/0046/2018", ]
+
+metadata$official_city <- toupper(metadata$official_city) #unnecessary?
+metadata$diagnostic_provider_city <- toupper(metadata$diagnostic_provider_city) # def necessary for this column
+cities_lat_long <- read.table(CITIES_LAT_LONG_FILE, sep="\t", header=TRUE, stringsAsFactors=TRUE)
+```
+
+```{r}
+# subset all-vs-all SNP distances to the three subsets
+all_pairs <- read.table(RENAMED_ALL_PAIRS_SNP_DIST, sep="\t", header=TRUE, stringsAsFactors=TRUE)
+nrow(all_pairs)
+
+# drop anything with HepA/USA/MA/0046/2018 from all_pairs
+all_pairs <- all_pairs[all_pairs$sequence1 != "HepA/USA/MA/0046/2018" & 
+                       all_pairs$sequence2 != "HepA/USA/MA/0046/2018", ]
+
+# Get IDs that satisfy all conditions simultaneously (from MA, passed QC, subgenotype IIIA)
+valid_ids <- metadata$MASPHL_Sequencing_ID[
+  metadata$State.of.Residence == "MA" &
+  metadata$Sample_Passed_QC == "Yes" &
+  metadata$Subgenotype == "IIIA" &
+  grepl("(2018|2019|2020)$", metadata$MASPHL_Sequencing_ID)]
+
+
+# Filter pairs where BOTH samples meet all criteria
+all_pairs <- all_pairs[all_pairs$sequence1 %in% valid_ids & 
+                       all_pairs$sequence2 %in% valid_ids, ]
+nrow(all_pairs) 
+
+# add homelessness, official_city for both sequence1 and sequence2
+all_pairs <- all_pairs %>%
+  left_join(metadata %>% select(sequence1 = MASPHL_Sequencing_ID, sequence1_homelessness = homelessness, sequence1_official_city = official_city, sequence1_diagnostic_provider_city = diagnostic_provider_city),
+            by = "sequence1") %>%
+  left_join(metadata %>% select(sequence2 = MASPHL_Sequencing_ID, sequence2_homelessness = homelessness, sequence2_official_city = official_city, sequence2_diagnostic_provider_city = diagnostic_provider_city),
+            by = "sequence2")
+
+# add latitude and longitude for offical city of residence
+all_pairs <- all_pairs %>%
+  left_join(cities_lat_long %>% select(sequence1_official_city = city, sequence1_longitude = longitude, sequence1_latitude=latitude),
+            by = "sequence1_official_city") %>%
+  left_join(cities_lat_long %>% select(sequence2_official_city = city, sequence2_longitude = longitude, sequence2_latitude=latitude),
+            by = "sequence2_official_city")
+
+# calculate geographic distances between MA cities
+all_pairs$lat_diff <- abs(all_pairs$sequence1_latitude - all_pairs$sequence2_latitude)
+all_pairs$long_diff <- abs(all_pairs$sequence1_longitude - all_pairs$sequence2_longitude)
+all_pairs$geographic_distance <- sqrt((111*all_pairs$lat_diff)^2 + (83*all_pairs$long_diff)^2)
+
+# now add ordering provider cities
+all_pairs <- all_pairs %>%
+  left_join(cities_lat_long %>% select(sequence1_diagnostic_provider_city = city, sequence1_ordering_provider_longitude = longitude, sequence1_ordering_provider_latitude=latitude),
+            by = "sequence1_diagnostic_provider_city") %>%
+  left_join(cities_lat_long %>% select(sequence2_diagnostic_provider_city = city, sequence2_ordering_provider_longitude = longitude, sequence2_ordering_provider_latitude=latitude),
+            by = "sequence2_diagnostic_provider_city")
+
+all_pairs$ordering_provider_lat_diff <- abs(all_pairs$sequence1_ordering_provider_latitude - all_pairs$sequence2_ordering_provider_latitude)
+all_pairs$ordering_provider_long_diff <- abs(all_pairs$sequence1_ordering_provider_longitude - all_pairs$sequence2_ordering_provider_longitude)
+all_pairs$ordering_provider_geographic_distance <- sqrt((111*all_pairs$ordering_provider_lat_diff)^2 + (83*all_pairs$ordering_provider_long_diff)^2)
+
+all_pairs_subset <- all_pairs
+nrow(all_pairs_subset)
+```
+
+```{r}
+# 5A 
+# generate geographic vs snp distance plots for official city of residence
+model <- lm(geographic_distance ~ snp_distance, data = all_pairs_subset)
+r_squared <- summary(model)$r.squared
+r_squared_polished <- paste("R² = ", round(r_squared, 3), sep="")
+geographic_vs_snp_distance_IIIA_2018_2020_plot <- ggplot(data = all_pairs_subset, aes(x = snp_distance, y = geographic_distance)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm", se = FALSE, color = "black") +
+    xlab("SNP Distance") + ylab("Geographic Distance (km)") +
+    ggtitle(r_squared_polished) +
+    theme_minimal() +
+    theme(panel.grid=element_blank(), axis.line=element_line(), axis.ticks=element_line())
+
+# calculate geographic distance for SNP distance 0 vs. >0
+identical_genomes_cutoff = 0
+identical_genomes_label <- "Identical Genomes"
+nonidentical_genomes_label <- "SNP Distance >0"
+all_pairs_subset$identical_genomes <- NA
+all_pairs_subset$identical_genomes[all_pairs_subset$snp_distance <= identical_genomes_cutoff] <- identical_genomes_label
+all_pairs_subset$identical_genomes[all_pairs_subset$snp_distance > identical_genomes_cutoff] <- nonidentical_genomes_label
+all_pairs_subset$identical_genomes <- factor(all_pairs_subset$identical_genomes, levels = c(identical_genomes_label, nonidentical_genomes_label))
+
+## Wilcoxon rank-sum test
+p_value <- wilcox.test(geographic_distance ~ identical_genomes, data = all_pairs_subset)$p.value
+p_value_polished <- if (p_value < 0.001) "p < 0.001" else paste("p =", signif(p_value, 3))
+
+# plot geographic distance for SNP distance 0 vs. >0
+geographic_distance_identical_genomes_plot <- ggplot(data = subset(all_pairs_subset, !is.na(identical_genomes)), aes(x = identical_genomes, y = geographic_distance)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.2, alpha = 0.3, color = "black") +
+    theme_bw() +
+    theme(panel.grid=element_blank(), axis.ticks.x=element_blank()) +
+    ylab("Geographic Distance (km)") +
+    xlab("") +
+    ggtitle(p_value_polished)
+
+# arrange and save final figure with four panels
+final_plot <- plot_grid(geographic_vs_snp_distance_IIIA_2018_2020_plot, geographic_distance_identical_genomes_plot,
+rel_widths = c(1, 0.6), align = 'v', axis = 'l', labels = NULL)
+plot(final_plot)  
+
+print(summary(model))
+
+ggsave(paste(OUTPUT_DIR, "figS5A_official_city_of_residence.png", sep="/"), final_plot, width=9, height=4.5)
+ggsave(paste(OUTPUT_DIR, "figS5A_official_city_of_residence.pdf", sep="/"), final_plot, width=9, height=4.5)
+```
+
+```{r}
+# 5B - generate geographic vs snp distance plots for ordering provider city
+model <- lm(ordering_provider_geographic_distance ~ snp_distance, data = all_pairs_subset)
+r_squared <- summary(model)$r.squared
+r_squared_polished <- paste("R² = ", round(r_squared, 3), sep="")
+print(r_squared_polished)
+
+geographic_vs_snp_distance_IIIA_2018_2020_plot <- ggplot(data = all_pairs_subset, aes(x = snp_distance, y = ordering_provider_geographic_distance)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm", se = FALSE, color = "black") +
+    xlab("SNP Distance") + ylab("Geographic Distance (km)") +
+    ggtitle(r_squared_polished) +
+    theme_minimal() +
+    theme(panel.grid=element_blank(), axis.line=element_line(), axis.ticks=element_line())
+
+# calculate geographic distance for SNP distance 0 vs. >0
+identical_genomes_cutoff = 0
+identical_genomes_label <- "Identical Genomes"
+nonidentical_genomes_label <- "SNP Distance >0"
+all_pairs_subset$identical_genomes <- NA
+all_pairs_subset$identical_genomes[all_pairs_subset$snp_distance <= identical_genomes_cutoff] <- identical_genomes_label
+all_pairs_subset$identical_genomes[all_pairs_subset$snp_distance > identical_genomes_cutoff] <- nonidentical_genomes_label
+all_pairs_subset$identical_genomes <- factor(all_pairs_subset$identical_genomes, levels = c(identical_genomes_label, nonidentical_genomes_label))
+
+# Wilcoxon rank-sum test
+p_value <- wilcox.test(ordering_provider_geographic_distance ~ identical_genomes, data = all_pairs_subset)$p.value
+p_value_polished <- if (p_value < 0.001) "p < 0.001" else paste("p =", signif(p_value, 3))
+#p_value_polished <- paste("p =", formatC(p_value, format = "g", digits = 3))
+
+# plot geographic distance for SNP distance 0 vs. >0
+geographic_distance_identical_genomes_plot <- ggplot(data = subset(all_pairs_subset, !is.na(identical_genomes)), aes(x = identical_genomes, y = ordering_provider_geographic_distance)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.2, alpha = 0.3, color = "black") +
+    theme_bw() +
+    theme(panel.grid=element_blank(), axis.ticks.x=element_blank()) +
+    ylab("Geographic Distance (km)") +
+    xlab("") +
+    ggtitle(p_value_polished)
+
+# arrange and save final figure with four panels
+final_plot <- plot_grid(geographic_vs_snp_distance_IIIA_2018_2020_plot, geographic_distance_identical_genomes_plot,
+rel_widths = c(1, 0.6), align = 'v', axis = 'l', labels = NULL)
+plot(final_plot)
+
+print(summary(model))
+
+ggsave(paste(OUTPUT_DIR, "figS5B_ordering_provider_city.png", sep="/"), final_plot, width=9, height=4.5)
+ggsave(paste(OUTPUT_DIR, "figS5B_ordering_provider_city.pdf", sep="/"), final_plot, width=9, height=4.5)
+
+```

@@ -1,0 +1,230 @@
+---
+title: "Figure S2"
+execute:
+  echo: false
+---
+
+**Figure S2. Confirmed MA outbreak and sequenced outbreak case counts by outbreak period and town.** 
+
+**A)** Confirmed outbreak-associated case count by MA town of residence during the 2018-2020 outbreak period. 
+
+**B)** Sequenced outbreak-associated cases by town of residence for the 2018-2020 outbreak period. 
+
+**C)** Confirmed outbreak-associated case count by town for the 2023-2024 outbreak period. 
+
+**D)** Sequenced outbreak-associated cases by town for the 2023-2024 outbreak. 
+
+```{r}
+rm(list = ls())
+pkglist = c("grid", "ggplot2", "ggtree", "dplyr", "ggpubr", "VennDiagram")
+lapply(pkglist, require, character.only = TRUE)
+
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+COUNTY_SHAPE=Sys.getenv("COUNTY_SHAPE")
+CLEANING_SCRIPT=Sys.getenv("CLEANING_SCRIPT")
+source(CLEANING_SCRIPT)
+
+```
+
+```{r}
+##########################################################
+##### Fig S2 - Outbreak and sequenced outbreak cases #####
+##########################################################
+# prep is same as fig 1/2
+
+#################################
+##### Load and prepare data #####
+#################################
+# we were going to include CT and NH cases initially, but have since to at least hold off on that for now. However, Lydia still needs the start of the NH shape for her plot, so only excluding CT with this subset
+metadata_town_clean <- subset(metadata_town_clean, cityResidence!="Connecticut")
+
+##### Shapefiles
+# town shapes
+town_shape <- read_sf(TOWN_SHAPE)
+# the TOWN variable gives all capitals for all town names, so just changing it so only the first letter of every word is capitalized.
+town_shape$town <- stri_trans_totitle(town_shape$TOWN)
+# county shapes
+county_shape <- read_sf(COUNTY_SHAPE)
+# both datasets have a column called "geometry" which describes the shape of the object in that row (either town or county). So I am changing the name of the "geometry" column in the county_shape dataframe to "countyGeo" so that I can have county and town shape variables in one dataset in later merge steps.
+names(county_shape)[names(county_shape)=="geometry"] <- "countyGeo"
+
+
+##### Processing cases by town
+# Merge in town shape to cases_town_all. I went to do this in the cleaning program, but excel can't handle the export of geometry scf data (kept giving null values), so had to create the desired shape file and then load/merge it in here.
+cases_town_all <- merge(metadata_town_clean,
+                        town_shape,
+                        by.x="cityResidence",
+                        by.y="town",
+                        all.x=TRUE)
+
+# merge in county shape to cases_town_all.
+cases_town_all <- merge(cases_town_all,
+                        county_shape,
+                        by.all="county",
+                        all.x=TRUE)
+
+# we have NH data; currently, that row is identified using the cityResidence variable (cityResidence=NH for those out-of-state-cases). Adding NH as a county if not an MA town
+cases_town_all$county <- ifelse(cases_town_all$cityResidence != "New Hampshire", cases_town_all$county, "New Hampshire")
+
+# # add a county-case density variable for proper coloring of the choropleth that will match with the phylogenetic tree
+cases_town_all$iiiaTownGrp <- paste0(cases_town_all$iiiaCtGrp3, "-", cases_town_all$county)
+
+# we were going to include CT and NH cases initially, but have since to at least hold off on that for now
+cases_town_all <- subset(cases_town_all, cityResidence!="Connecticut")
+# for this specific plot, excluding NH as well
+cases_town_all <- subset(cases_town_all, cityResidence!="New Hampshire")
+
+
+##### Fig S2A - choropleth of outbreak cases in 2018-2020
+fig_s2a <- ggplot(data=subset(cases_town_all, cityResidence != "New Hampshire")) +
+  ##### data
+  geom_sf(aes(geometry=geometry, fill=outbreak1OutbreakCtGrp6),
+          show.legend=TRUE,
+          color=NA) +
+  ##### theme
+  theme_void() +
+  ##### data color choices
+  scale_fill_manual(breaks=c("0",
+                             "1-5",
+                             "6-10",
+                             "11-30",
+                             "31-60",
+                             ">60"),
+                    values=c("0"="lightgray",
+                             "1-5"="#f0ff00",
+                             "6-10"="#ffcd32",
+                             "11-30"="#ff9700",
+                             "31-60"="#ff5d13",
+                             ">60"="#ff0000"),
+                    name="2018-2020\nOutbreak case counts",
+                    drop=FALSE) +
+  # removing lines around legend color boxes
+  guides(fill=guide_legend(override.aes=list(linetype=c(0,0,0,0,0,0)))) +
+  ##### theme
+  theme(text = element_text(family = "sans"),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12),
+        legend.key.size = unit(0.2, "cm")) +
+  ##### plot labels
+  labs(title="a")
+
+plot(fig_s2a)
+  
+##### Fig S2B - choropleth of sequenced outbreak cases in 2018-2020
+fig_s2b <- ggplot(data=subset(cases_town_all, cityResidence != "New Hampshire")) +
+  ##### data
+  geom_sf(aes(geometry=geometry, fill=outbreak1SequencedCtGrp6),
+          show.legend=TRUE,
+          color=NA) +
+  ##### theme
+  theme_void() +
+  theme(text = element_text(family = "sans"),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12),
+        legend.key.size = unit(0.2, "cm")) +
+  ##### data color choices
+  scale_fill_manual(breaks=c("0",
+                             "1-5",
+                             "6-10",
+                             "11-30",
+                             "31-60",
+                             ">60"),
+                    values=c("0"="lightgray",
+                             "1-5"="#f0ff00",
+                             "6-10"="#ffcd32",
+                             "11-30"="#ff9700",
+                             "31-60"="#ff5d13",
+                             ">60"="#ff0000"),
+                    name="2018-2020\nSequenced outbreak\ncase counts",
+                    drop=FALSE) +
+  # removing lines around legend color boxes
+  guides(fill=guide_legend(override.aes=list(linetype=c(0,0,0,0,0,0)))) +
+  ##### plot labels
+  labs(title="b")
+
+plot(fig_s2b)
+
+##### Fig S2C - choropleth of outbreak cases in 2023-2024
+fig_s2c <- ggplot(data=subset(cases_town_all, cityResidence != "New Hampshire")) +
+  ##### data
+  geom_sf(aes(geometry=geometry, fill=outbreak2OutbreakCtGrp3),
+          show.legend=TRUE,
+          color=NA) +
+  ##### theme
+  theme_void() +
+  theme(text = element_text(family = "sans"),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12),
+        legend.key.size = unit(0.2, "cm"),
+        plot.margin = unit(c(-5,0,0,0), "cm")) +
+  ##### data color choices
+  scale_fill_manual(breaks=c("0",
+                             "1-5",
+                             ">5"),
+                    values=c("0"="lightgray",
+                             "1-5"="#f0ff00",
+                             ">5"="#ff0000"),
+                    name="2023-2024\nOutbreak case counts",
+                    drop=FALSE) +
+  # remove outlines of legend color boxes
+  guides(fill=guide_legend(override.aes=list(linetype=c(0,0,0)))) +
+  ##### plot labels
+  labs(title="c")
+
+plot(fig_s2c)
+
+##### Fig S2D - choropleth of sequenced outbreak cases in 2023-2024
+fig_s2d <- ggplot(data=subset(cases_town_all, cityResidence != "New Hampshire")) +
+  ##### data 
+  geom_sf(aes(geometry=geometry, fill=outbreak2SequencedCtGrp3),
+          show.legend=TRUE,
+          color=NA) +
+  ##### theme
+  theme_void() +
+  theme(text = element_text(family = "sans"),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12),
+        legend.key.size = unit(0.2, "cm"),
+        plot.margin = unit(c(-5,0,0,0), "cm")) +
+  ##### data color choices
+  scale_fill_manual(breaks=c("0",
+                             "1-5",
+                             ">5"),
+                    values=c("0"="lightgray",
+                             "1-5"="#f0ff00",
+                             ">5"="#ff0000"),
+                    name="2023-2024\nSequenced outbreak\ncase counts",
+                    drop=FALSE) +
+  # remove lines around color boxes in the legend
+  guides(fill=guide_legend(override.aes=list(linetype=c(0,0,0)))) +
+  ##### plot labels
+  labs(title="d")
+
+plot(fig_s2d)
+
+##### supplementary plot with all 4 panels
+s2 <- ggpubr::ggarrange(fig_s2a, 
+                        fig_s2b, 
+                        fig_s2c, 
+                        fig_s2d, 
+                        nrow=2, 
+                        ncol=2,
+                        align="v")
+
+plot(s2)
+
+##### pdf of Supplementary fig 2
+s2 %>%
+  ggsave(filename=paste0(OUTPUT_DIR, "/FigS2.pdf"), width=8, dpi=300)
+s2 %>%
+  ggsave(filename=paste0(OUTPUT_DIR, "/FigS2.png"), width=8, dpi=300)
+
+
+```

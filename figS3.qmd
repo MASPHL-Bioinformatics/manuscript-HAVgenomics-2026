@@ -1,0 +1,251 @@
+---
+title: "Figure S3"
+execute:
+  echo: false
+---
+
+**Figure S3. Maximum likelihood phylogeny of clade IIIA sequences.** Phylogenetic reconstruction of all previously published (see **Methods**) and newly generated IIIA length ≥7,125 human host whole genome sequences, with large genetically similar cluster shown in **Fig 2C** collapsed. Nodes from sequences generated in this study are colored by location and outbreak status as in **Fig 2C**; colored tips in this tree represent non-outbreak-associated sequences from 2023-2024. Colored bars to the right of the tree are also colored as in **Fig 2C**, indicating none of the newly generated MA sequences was from PWUD or PEH cases. 
+
+```{r}
+rm(list = ls())
+pkglist = c("ape", "stringr", "cowplot", "grid", "ggplot2", "ggtree", "ggtreeExtra", "dplyr", "igraph")
+lapply(pkglist, require, character.only = TRUE)
+
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+RENAMED_IIIA_ALL_TREE=Sys.getenv("RENAMED_IIIA_ALL_TREE")
+GENBANK_METADATA=Sys.getenv("GENBANK_METADATA")
+EPI_LINKAGE_SCRIPT=Sys.getenv("EPI_LINKAGE_SCRIPT")
+source(EPI_LINKAGE_SCRIPT)
+
+tree_clade <- "IIIA main cluster"
+outgroup_for_rooting <- "AB279732.1"
+text_offset <- 0.00004
+scale_width <- 0.01
+fruit_width <- 0.003
+compress_tree <- TRUE
+compressed_height <- 19
+full_height <- 22
+width <- 8
+suffix <- "_main_cluster"
+```
+
+```{r}
+# read in tree
+tree <- read.tree(RENAMED_IIIA_ALL_TREE)
+tree <- drop.tip(tree, "HepA/USA/MA/0046/2018")
+# 290 tip labels, will be 289 without 0046
+
+nrow(metadata) #881 
+# NOTE: HepA/USA/MA/0046/2018 was previously dropped from metadata in the source script
+
+metadata <- metadata[metadata$MASPHL_Sequencing_ID %in% tree$tip.label, ] #265
+
+# could be replaced by Outbreak_yr (which is currently not comprehensive...)
+metadata$sample_group <- "2018-2020"
+metadata$sample_group[grepl("^24MAHAV", metadata$study_identifier)] <- "2023-2024"
+metadata <- metadata %>% dplyr::rename(label = MASPHL_Sequencing_ID)
+metadata$illicit_ever[metadata$illicit_ever == ""] <- NA
+metadata$homelessness[metadata$homelessness == ""] <- NA
+
+# prepares metadata variables
+metadata$illicit_ever[is.na(metadata$illicit_ever)] <- ""
+metadata$illicit_ever <- paste("illicit_ever: ", metadata$illicit_ever, sep="")
+metadata$homelessness[is.na(metadata$homelessness)] <- ""
+metadata$homelessness <- paste("homelessness: ", metadata$homelessness, sep="")
+
+metadata <- metadata %>% select(label, everything())
+
+# reads in metadata for GenBank sequences
+genbank_metadata <- read.table(GENBANK_METADATA, sep="\t", header=TRUE, stringsAsFactors=FALSE)
+genbank_metadata <- genbank_metadata %>% dplyr::rename(label = strain)
+genbank_metadata <- genbank_metadata %>% select(label, everything())
+
+nrow(genbank_metadata[genbank_metadata$label %in% tree$tip.label, ])#24
+
+linkage_groups <- linkage_groups %>% dplyr::rename(label = strain)
+linkage_groups <- linkage_groups %>% select(label, everything())
+
+length(unique(metadata$label)) # 881 with no empties dropped, 471 for metadata w empties dropped 
+length(unique(genbank_metadata$label)) # 281 for genbank
+length(unique(linkage_groups$label)) # 29 for linkage groups
+
+# # if preferred, it is possible to combine all metadata before attaching it to the tree
+# combined_metadata <- metadata %>%
+#   full_join(genbank_metadata, by = "label") %>%
+#   full_join(linkage_groups, by = "label")
+# combined_metadata <- combined_metadata %>% select(label, everything())
+
+sum(metadata$sample_group=="2023-2024") #3
+sum(metadata$sample_group=="2018-2020") #262
+sum(metadata$Sample_Passed_QC=="Yes") #all 265
+sum(metadata$State.of.Residence=="MA") #215, 50 from NH
+
+table(metadata$State.of.Residence[metadata$State.of.Residence %in% c("MA", "NH", "CT", "") | is.na(metadata$State.of.Residence)])
+
+table(metadata$outbreak, useNA = "ifany") # 5 No, 211 Yes
+table(metadata$Subgenotype, useNA = "ifany")
+
+table(metadata$outbreak, metadata$State.of.Residence, useNA = "ifany")
+table(metadata$outbreak, metadata$sample_group, useNA = "ifany")
+```
+
+```{r}
+# reroot tree using outgroup
+tree <- root(tree, outgroup = outgroup_for_rooting, resolve.root = TRUE)
+
+# in IIIA tree, node 312 is the dividing point between the whole tree and the sub-tree with most sequences
+get_descendants <- function(tree, node)
+{
+  children <- tree$edge[tree$edge[, 1] == node, 2]
+  all_descendants <- children
+  for (child in children)
+  {
+    all_descendants <- c(all_descendants, get_descendants(tree, child))
+  }
+  return(all_descendants)
+}
+
+descendants <- get_descendants(tree, 311)
+nodes_to_keep <- unique(c(311, descendants))
+
+tree_visualized <- ggtree(tree, layout = "rectangular", show.scale = TRUE)
+tree_visualized <- collapse(tree_visualized, node = 311)
+
+tree_visualized <- tree_visualized +
+  geom_point2(aes(subset = (node == 311)), color = "black", size = 2, shape = 23) +
+  geom_cladelabel(node = 311, fontsize = 4, offset = text_offset, label = "main cluster")
+
+# visualizing nodes
+# tree_visualized <- tree_visualized + 
+#   geom_text2(aes(label = node), hjust = -0.3, size = 2) +
+#   geom_tiplab(size = 2)
+
+tree_visualized <- tree_visualized %<+% metadata %<+% genbank_metadata %<+% linkage_groups +
+  # geom_text2(aes(label = node), hjust = -0.3, size = 1.5, color = "black", offset = text_offset) + # node labels
+  scale_color_manual(values = c(
+    "NH"                = "#808080",
+    "CT"                = "#000000",
+    "Berkshire County"  = "#680000",
+    "Franklin County"   = "#a90000",
+    "Hampshire County"  = "#de2300",
+    "Hampden County"    = "#ea6800",
+    "Worcester County"  = "#d1a100",
+    "Middlesex County"  = "#93d200",
+    "Essex County"      = "#b4ff06",
+    "Suffolk County"    = "#2de000",
+    "Norfolk County"    = "#00af9e",
+    "Bristol County"    = "#0485e4",
+    "Plymouth County"   = "#254bc8",
+    "Barnstable County" = "#2c2071",
+    "Unknown"           = "#dddddd"
+  ), na.value           = "#dddddd") +
+  scale_fill_manual(values = c(
+    "NH"                = "#808080",
+    "CT"                = "#000000",
+    "Berkshire County"  = "#680000",
+    "Franklin County"   = "#a90000",
+    "Hampshire County"  = "#de2300",
+    "Hampden County"    = "#ea6800",
+    "Worcester County"  = "#d1a100",
+    "Middlesex County"  = "#93d200",
+    "Essex County"      = "#b4ff06",
+    "Suffolk County"    = "#2de000",
+    "Norfolk County"    = "#00af9e",
+    "Bristol County"    = "#0485e4",
+    "Plymouth County"   = "#254bc8",
+    "Barnstable County" = "#2c2071",
+    "Unknown"           = "#dddddd",
+    "No"                = "white"
+  ), na.value           = "#dddddd", guide = "none") +
+  scale_shape_manual(values = c("2018-2020" = 21, "2023-2024" = 22)) +
+  labs(color = "county_of_residence") +
+  ggtitle(tree_clade) +
+  theme_tree2() +
+  theme(legend.position = "none",
+        axis.line.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank()) +
+  # geom_treescale(x = 0, y = -2, width = scale_width, fontsize = 2)
+  # geom_treescale(x = 0, y = 0, width = scale_width, fontsize = 2)
+  geom_treescale(x = -0.003, y = -2, width = scale_width, fontsize = 2)
+
+tree_visualized <- tree_visualized +
+  geom_tiplab(aes(label = display_name), size = 2, color = "black", offset = text_offset * 3) + # offset = text_offset) +
+  geom_tippoint(aes(color = county_of_residence, fill = county_of_residence, shape = sample_group, x = x + text_offset * 4), size = 3, na.rm=TRUE) +
+  geom_tippoint(aes(fill = ifelse(outbreak == "Yes", county_of_residence, outbreak), color = NA, shape = sample_group, x = x + text_offset * 4), size = 1, stroke = 0, na.rm=TRUE) +
+  geom_tiplab(aes(label = linkage_group), size = 2, color = "black", offset = text_offset * 8) # text_offset * 4)
+
+# add other metadata variables
+max_x <- max(tree_visualized$data$x, na.rm = TRUE)
+tree_visualized <- tree_visualized +
+  geom_fruit(
+    geom = geom_tile,
+    mapping = aes(y = label, x = 1, fill = illicit_ever),
+    width = fruit_width,
+    offset = 0
+  ) +
+  geom_fruit(
+    geom = geom_tile,
+    mapping = aes(y = label, x = 1, fill = homelessness),
+    width = fruit_width,
+    offset = 0
+  ) +
+  scale_fill_manual(values = c(
+    "NH"                = "#808080",
+    "CT"                = "#000000",
+    "Berkshire County"  = "#680000",
+    "Franklin County"   = "#a90000",
+    "Hampshire County"  = "#de2300",
+    "Hampden County"    = "#ea6800",
+    "Worcester County"  = "#d1a100",
+    "Middlesex County"  = "#93d200",
+    "Essex County"      = "#b4ff06",
+    "Suffolk County"    = "#2de000",
+    "Norfolk County"    = "#00af9e",
+    "Bristol County"    = "#0485e4",
+    "Plymouth County"   = "#254bc8",
+    "Barnstable County" = "#2c2071",
+    "Unknown"           = "#dddddd",
+    "No"                = "white",
+    
+    "illicit_ever: Yes" = "#E27CAE",
+    "illicit_ever: No" = "#1C53E0",
+    "illicit_ever: Unknown" = "white",
+    "illicit_ever: " = "white",
+    
+    "homelessness: Yes" = "#FFB000",
+    "homelessness: No" = "#543ACC",
+    "homelessness: Unknown" = "white",
+    "homelessness: " = "white"
+    
+  ), na.value           = NA, guide = "none")
+
+tree_visualized <- tree_visualized +
+  # xlim(-0.0068, NA)
+  xlim(-0.0048, NA)
+
+# add root branch
+root_y <- tree_visualized$data$y[tree_visualized$data$node == getMRCA(tree, tree$tip.label)]
+
+tree_visualized <- tree_visualized + 
+  annotate("segment", x = -2 * text_offset, xend = 0, y = root_y, yend = root_y)
+
+plot(tree_visualized)
+```
+
+```{r}
+# save tree
+width <- 5
+height <- 4
+
+ggsave(paste(OUTPUT_DIR, "figS3.png", sep="/"), tree_visualized, width=width, height=height)
+ggsave(paste(OUTPUT_DIR, "figS3.pdf", sep="/"), tree_visualized, width=width, height=height)
+
+# April 22, 2025
+# May 6, 2025
+# May 14, 2025
+```

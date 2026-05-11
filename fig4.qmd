@@ -1,0 +1,263 @@
+---
+title: "Figure 4"
+execute:
+  echo: false
+---
+
+**Figure 4. Comparison of HAV whole genome sequencing and subgenotyping approaches.**
+
+**A)** Phylogenetic relationships among clade IIIA genomes from this study that were successfully sequenced and had known epidemiological links reconstructed using whole genome sequences (left) and the VP1-2B region only (right). Linkage group designation is indicated by matching letters (A-I) and like colors. 
+
+**B)** Average sequencing coverage for samples (n=7) from the 2023-2024 outbreak period that produced full genome assemblies using each sequencing method. The VP1-2B region is marked by a dark gray bar. 
+
+**C)** Percentage of reads per sample identified as HAV for each sequencing method. 
+
+```{r}
+rm(list = ls())
+pkglist = c("ape", "ggtree", "ggplot2", "viridis", "dplyr", "stringr", "cowplot", "tidyr", "data.table", "gridExtra", "cowplot", "readxl", "tidyverse", "igraph")
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+TR_TREE=Sys.getenv("TR_TREE")
+WGS_TREE=Sys.getenv("WGS_TREE")
+COVERAGE_XLSX=Sys.getenv("COVERAGE_XLSX") 
+HAV_PANEL_SHEET=Sys.getenv("HAV_PANEL_SHEET")
+TWIST_SHEET=Sys.getenv("TWIST_SHEET")
+METAGENOMIC_COVERAGE=Sys.getenv("METAGENOMIC_COVERAGE")
+TABLE_S1=Sys.getenv("TABLE_S1")
+EPI_LINKAGE_SCRIPT=Sys.getenv("EPI_LINKAGE_SCRIPT")
+TABLES1_SCRIPT=Sys.getenv("TABLES1_SCRIPT")
+
+if (!file.exists(TABLE_S1) || file.size(TABLE_S1) == 0) {
+  source(TABLES1_SCRIPT)
+}
+
+source(EPI_LINKAGE_SCRIPT)
+```
+
+```{r}
+# 4A
+outgroup <- "AB279732.1" # oldest genbank sequence from each clade is used as outgroup
+
+# epi links here = all-vs-all QC-passing epi pairs derived from linkage groups
+epi_links <- subset(combined, type == "epi" | type == "epi and juniper")
+nrow(epi_links) #31
+
+# function to root tree on outgroup and save
+process_tree_with_outgroup <- function(tree_file,label,outgroup,OUTPUT_DIR,linkages) {
+    tree <- read.tree(tree_file)
+
+    # just in case - shouldn't be present but double check
+    tree <- drop.tip(tree, "HepA/USA/MA/0046/2018")
+    
+    tree <- root(tree, outgroup = outgroup, resolve.root = TRUE)
+    
+    # is outgroup the furthest tip?
+    distances <- node.depth.edgelength(tree)
+    farthest_tip <- tree$tip.label[which.max(distances[1:Ntip(tree)])]
+    
+    if (farthest_tip != outgroup) {
+        writeLines("Warning: farthest tip is not outgroup",con = file.path(OUTPUT_DIR,paste0(label, "_warning.txt")))
+    }
+    
+    # drop outgroup
+    tree <- drop.tip(tree, outgroup)
+    # #write.tree(tree,file = file.path(OUTPUT_DIR,paste0(label,"_rerooted_with_outgroup_outgroup_removed.txt")))
+    
+    # annotate tree with linkages
+    tree_data <- data.frame(label = tree$tip.label)
+    tree_data <- merge(tree_data, linkages,by.x = "label",by.y = "strain",all.x = TRUE)
+
+    if (label == "TR") {
+        text_offset <- 0.00000003
+        scale_width <- 0.0000001
+        plot_title <- "VP1-2B"
+    } else if (label == "WGS") {
+        text_offset <- 0.00001
+        scale_width <- 0.0001
+        plot_title <- "WGS"
+    } else {
+        text_offset <- 0.00001
+        scale_width <- 0.0001
+        plot_title <- label
+    }
+    
+    # plot tree
+    tree_with_linkages <- ggtree(tree) %<+% tree_data +
+        geom_tippoint(aes(color = linkage_group), size = 3) +
+        geom_tiplab(aes(label = linkage_group),
+                    size = 3,
+                    color = "black",
+                    offset = text_offset) +
+        scale_color_brewer(palette = "Spectral", na.translate = FALSE) +
+        theme_tree2() +
+        theme(legend.position = "none",
+            axis.line.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.title.x = element_blank()) +
+        geom_treescale(x = 0,
+                    y = 0,
+                    width = scale_width,
+                    fontsize = 2) +
+        ggtitle(plot_title)
+    
+    # add root branch in
+    root_y <- tree_with_linkages$data$y[
+        tree_with_linkages$data$node ==
+        getMRCA(tree, tree$tip.label)
+    ]
+    
+    tree_with_linkages <- tree_with_linkages +
+        annotate("segment",
+                x = -2 * text_offset,
+                xend = 0,
+                y = root_y,
+                yend = root_y)
+    
+    plot(tree_with_linkages)
+    ggsave(paste(OUTPUT_DIR, "/Fig4A_", label, ".jpg", sep=""), tree_with_linkages, width=4, height=4)
+    ggsave(paste(OUTPUT_DIR, "/Fig4A_", label,".pdf", sep=""), tree_with_linkages, width=4, height=4)
+}
+
+process_tree_with_outgroup(TR_TREE, "TR", outgroup, OUTPUT_DIR, linkage_groups)
+
+process_tree_with_outgroup(WGS_TREE, "WGS", outgroup, OUTPUT_DIR, linkage_groups)
+
+```
+
+```{r}
+# 4B
+
+HAV_Panel_Coverage <- read_excel(COVERAGE_XLSX, sheet = HAV_PANEL_SHEET)
+Twist_Coverage <- read_excel(COVERAGE_XLSX, sheet = TWIST_SHEET)
+Metagenomic_Coverage <- read_excel(COVERAGE_XLSX, sheet = METAGENOMIC_COVERAGE)
+
+
+## HAV Panel
+p1 = ggplot(HAV_Panel_Coverage, aes(x=`Position on genome`, y=`Average  Read Depth`)) +  
+  geom_area(alpha=0.4 , size=.5, colour="black", fill="#999999") +
+  scale_fill_viridis(discrete = T) + 
+  theme_classic() +
+  theme(axis.title = element_text(size = 12, face = "bold")) +
+  ggtitle("HAV Specific Panel") +
+  theme(plot.title = element_text(size = 12, face = "bold")) +
+  labs(x = "Genome Position", y = "") +
+  scale_y_continuous(expand = c(0,0),limits = c(0,1100)) +
+  scale_x_continuous(expand = c(0,0), limits = c(0,7500), breaks = c(0,500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500)) +
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1)) +
+  geom_segment(aes(x = 2897, y = 5, xend = 3288), size=7, color="#666666")
+
+
+## Twist Panel
+p2 = ggplot(Twist_Coverage, aes(x=`Position on genome`, y=`Average  Read Depth`)) +  
+  geom_area(alpha=0.4 , size=.5, colour="black", fill="#999999") +
+  scale_fill_viridis(discrete = T) + 
+  theme_classic() +
+  theme(axis.title = element_text(size = 12, face = "bold")) +
+  theme(plot.title = element_text(size = 12, face = "bold")) +
+  ggtitle("Twist Panel") +
+  labs(x = "", y = "Average Read Depth") +
+  scale_y_continuous(expand = c(0,0),limits = c(0,1100)) +
+  scale_x_continuous(expand = c(0,0), limits = c(0,7500), breaks = c(0,500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500)) +
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1)) +
+  geom_segment(aes(x = 2897, y = 5, xend = 3288), size=7, color="#666666")
+
+## Metagenomic
+p3 = ggplot(Metagenomic_Coverage, aes(x=`Position on genome`, y=`Average  Read Depth`)) +  
+  geom_area(alpha=0.4 , size=.5, colour="black", fill="#999999") +
+  scale_fill_viridis(discrete = T) + 
+  theme_classic() +
+  theme(axis.title = element_text(size = 12, face = "bold")) +
+  theme(plot.title = element_text(size = 12, face = "bold")) +
+  ggtitle("Metagenomic") +
+  labs(x = "", y = "") +
+  scale_y_continuous(expand = c(0,0),limits = c(0,1100)) +
+  scale_x_continuous(expand = c(0,0), limits = c(0,7500), breaks = c(0,500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500)) +
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1)) +
+  geom_segment(aes(x = 2897, y = 5, xend = 3288), size=7, color="#666666")
+
+
+##### Combined plot
+fig4B <- grid.arrange(p3, p2, p1, ncol=1)
+plot(fig4B)
+ggsave(paste(OUTPUT_DIR, "/Fig4B", ".jpg", sep=""), fig4B)
+ggsave(paste(OUTPUT_DIR, "/Fig4B", ".pdf", sep=""), fig4B)
+```
+
+```{r}
+# 4C
+## read table S1
+Table_S1 <- read_csv(TABLE_S1)
+
+#HAV Panel Plot
+df_HAV_Panel = select(filter(Table_S1,`Sample ID`=="HepA/USA/MA/0354/2023"|`Sample ID`=="HepA/USA/MA/0355/2023"|`Sample ID`=="HepA/USA/MA/0355/2023"|`Sample ID`=="HepA/USA/MA/0356/2023"|`Sample ID`=="HepA/USA/MA/0357/2023"|`Sample ID`=="HepA/USA/MA/0359/2023"|`Sample ID`=="HepA/USA/MA/0360/2023"|`Sample ID`=="HepA/USA/MA/0361/2023"|`Sample ID`=="HepA/USA/MA/0362/2023"|`Sample ID`=="HepA/USA/MA/0363/2024"|`Sample ID`=="HepA/USA/MA/0364/2024"|`Sample ID`=="HepA/USA/MA/0367/2024"|`Sample ID`=="HepA/USA/MA/0369/2024"|`Sample ID`=="HepA/USA/MA/0373/2024"|`Sample ID`=="HepA/USA/MA/0376/2024"), c('Sample ID','Percent of Unclassified Reads HAV Panel','Percent of Other Viral Reads HAV Panel','Percent of HAV Reads HAV Panel'))
+df_long_HAV_Panel = melt(as.data.table(df_HAV_Panel))
+
+p3 = ggplot(df_long_HAV_Panel, aes(x = `Sample ID`, y = value, fill = variable)) + 
+  geom_bar(stat="identity") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 12, face = "bold")) +
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1)) +
+  theme(plot.title = element_text(size = 12, face = "bold")) +
+  scale_fill_manual(name="Read Classification",labels=c("Unclassified","Other Viral", "Hepatovirus A"), values=c("#E5E5E5","#999999","#666666")) +
+  #labs(x = "Sample", y = "Percent of total reads") +
+  labs(y ="", x = "") +
+  scale_y_continuous(expand = c(0,0))+ 
+  ggtitle("HAV Specific Panel") +
+  theme(legend.position="none")
+
+p3
+#Twist Panel
+df_Twist = select(filter(Table_S1,`Sample ID`=="HepA/USA/MA/0354/2023"|`Sample ID`=="HepA/USA/MA/0355/2023"|`Sample ID`=="HepA/USA/MA/0355/2023"|`Sample ID`=="HepA/USA/MA/0356/2023"|`Sample ID`=="HepA/USA/MA/0357/2023"|`Sample ID`=="HepA/USA/MA/0359/2023"|`Sample ID`=="HepA/USA/MA/0360/2023"|`Sample ID`=="HepA/USA/MA/0361/2023"|`Sample ID`=="HepA/USA/MA/0362/2023"|`Sample ID`=="HepA/USA/MA/0363/2024"|`Sample ID`=="HepA/USA/MA/0364/2024"|`Sample ID`=="HepA/USA/MA/0367/2024"|`Sample ID`=="HepA/USA/MA/0369/2024"|`Sample ID`=="HepA/USA/MA/0373/2024"|`Sample ID`=="HepA/USA/MA/0376/2024"), c('Sample ID','Percent of Unclassified Reads Twist','Percent of Other Viral Reads Twist','Percent of HAV Reads Twist'))
+df_Twist_long = melt(as.data.table(df_Twist))
+
+p2 = ggplot(df_Twist_long, aes(x = `Sample ID`, y = value, fill = variable)) + 
+  geom_bar(stat="identity") +
+  theme_classic() +
+  theme(plot.title = element_text(size = 12, face = "bold")) +
+  theme(axis.title = element_text(size = 12, face = "bold")) +
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1)) +
+  scale_fill_manual(name="Read Classification",labels=c("Unclassified", "Other Viral", "Hepatovirus A"), values=c("#E5E5E5","#999999","#666666")) +
+  #labs(x = "Sample", y = "Percent of total reads") +
+  labs(y ="", x = "") +
+  scale_y_continuous(expand = c(0,0)) + 
+  ggtitle("Twist Panel")+
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+#Metagenomic plot
+df_Meta = select(filter(Table_S1,`Sample ID`=="HepA/USA/MA/0354/2023"|`Sample ID`=="HepA/USA/MA/0355/2023"|`Sample ID`=="HepA/USA/MA/0355/2023"|`Sample ID`=="HepA/USA/MA/0356/2023"|`Sample ID`=="HepA/USA/MA/0357/2023"|`Sample ID`=="HepA/USA/MA/0359/2023"|`Sample ID`=="HepA/USA/MA/0360/2023"|`Sample ID`=="HepA/USA/MA/0361/2023"|`Sample ID`=="HepA/USA/MA/0362/2023"|`Sample ID`=="HepA/USA/MA/0363/2024"|`Sample ID`=="HepA/USA/MA/0364/2024"|`Sample ID`=="HepA/USA/MA/0367/2024"|`Sample ID`=="HepA/USA/MA/0369/2024"|`Sample ID`=="HepA/USA/MA/0373/2024"|`Sample ID`=="HepA/USA/MA/0376/2024"), c('Sample ID','Percent of Unclassified Reads Metagenomic','Percent of Other Viral Reads Metagenomic','Percent of HAV Reads Metagenomic'))
+df_Meta_long = melt(as.data.table(df_Meta))
+
+p1 = ggplot(df_Meta_long, aes(x = `Sample ID`, y = value, fill = variable)) + 
+  geom_bar(stat="identity") +
+  theme_classic() +
+  scale_fill_manual(name="Read Classification",labels=c("Unclassified", "Other Viral", "Hepatovirus A"), values=c("#E5E5E5","#999999","#666666")) +
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1)) +
+  theme(axis.title = element_text(size = 12, face = "bold")) +
+  theme(plot.title = element_text(size = 12, face = "bold")) +
+  #labs(x = "Sample", y = "Percent of total reads") +
+  labs(y ="", x = "") +
+  scale_y_continuous(expand = c(0,0)) +
+  ggtitle("Metagenomic") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  theme(legend.position="none")
+
+#Create combined plot
+combined_plot = plot_grid(p1, p2, p3, align = "v", nrow = 3, rel_heights = c(1/4, 1/4, 8/17))
+
+final_plot2 <- ggdraw(combined_plot) +
+  draw_label("Sample", x = 0.5, y = 0, vjust = -0.5, hjust= 1.2, angle = 0, size = 13.5, fontface="bold") +
+  draw_label("Percent of Reads", x = 0, y = 0.5, vjust = 1.5, angle = 90, size = 13.5, fontface="bold")
+
+plot(final_plot2)
+
+ggsave(paste(OUTPUT_DIR, "/Fig4C", ".jpg", sep=""), final_plot2)
+ggsave(paste(OUTPUT_DIR, "/Fig4C", ".pdf", sep=""), final_plot2)
+```

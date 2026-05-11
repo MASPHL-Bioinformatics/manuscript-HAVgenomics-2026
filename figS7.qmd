@@ -1,0 +1,159 @@
+---
+title: "Figure S7"
+execute:
+  echo: false
+---
+
+**Figure S7. Transmission probability by variable.** Transmission identified by reported gender, food handler status, evidence of travel history, and vaccination status. Only IIIA MA sequences passing quality control are included. 
+
+```{r}
+rm(list = ls())
+pkglist = c("coda", "stringr", "cowplot", "plyr", "readxl", "tibble")
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+JUNIPER_HELPER_SCRIPT=Sys.getenv("JUNIPER_HELPER_SCRIPT")
+EPI_LINKAGE_SCRIPT=Sys.getenv("EPI_LINKAGE_SCRIPT")
+
+source(JUNIPER_HELPER_SCRIPT)
+source(EPI_LINKAGE_SCRIPT)
+
+```
+
+```{r}
+# Taylor's metadata filtering code from hav_25mar25_analysis.R: "about the metadata file then, I think it was just filtered for those sequences that were 95% complete and had passed a previously defined QC"
+# he ended up with 305 in his including the NH sequences - I also dropped HepA/USA/MA/0046/2018 
+# double check
+qc_filtered_metadata <- metadata %>%
+  filter(Sample_Passed_QC == "Yes",
+          Subgenotype == "IIIA",
+         MASPHL_Sequencing_ID != "HepA/USA/MA/0046/2018")
+colnames(qc_filtered_metadata)
+
+
+# Capitalize "no/unknown" and "yes" for vaccine per collaborator request
+qc_filtered_metadata$vaccine[qc_filtered_metadata$vaccine == "no/unknown"] <- "No/Unknown"
+qc_filtered_metadata$vaccine[qc_filtered_metadata$vaccine == "yes"] <- "Yes"
+
+# replace "Unknown" values in foodhandler and travel with ""
+qc_filtered_metadata$IS_CASE_A_FOODHANDLER[qc_filtered_metadata$IS_CASE_A_FOODHANDLER == "Unknown"] <- ""
+qc_filtered_metadata$travel[qc_filtered_metadata$travel == "Unknown"] <- ""
+```
+
+```{r}
+# plot transmissions rates by metadata variables
+height <- 2.5
+width <- 7
+
+all_variables <- data.table(
+  variable = c("vaccine", "gender", "homelessness", "unstablehousing", "recent_illicit", "illicit_ever", "recent_injection", "injection_ever", "nausea", "vomiting", "diarrhea", "jaundice", "IS_CASE_A_FOODHANDLER", "travel"),
+  variable_name  = c("Vaccine", "Gender", "Homelessness", "Unstable Housing", "Illicit Drug Use (Recent)", "Illicit Drug Use (Ever)", "Injection Drug Use (Recent)", "Injection Drug Use (Ever)", "Nausea",   "Vomiting", "Diarrhea", "Jaundice", "Is Food Handler", "Travel History"),
+  legend_name  = c("Vaccine", "Gender", "Experiencing Homelessness", "Unstable Housing", "Illicit Drug Use (Recent)", "Drug Use", "Injection Drug Use (Recent)", "Injection Drug Use (Ever)", "Nausea",   "Vomiting", "Diarrhea", "Jaundice", "Is Food Handler", "Travel History"),
+  comparison_alt = c("No/Unknown_vs_Yes", "Female_vs_Male", "No_vs_Yes", "Yes_vs_No", "No_vs_Yes", "No_vs_Yes", "No_vs_Yes", "No_vs_Yes", "Yes_vs_No","Yes_vs_No","Yes_vs_No","Yes_vs_No","No_vs_Yes", "No_vs_Yes"),
+  comparison = c("Yes_vs_No/Unknown", "Male_vs_Female", "Yes_vs_No", "No_vs_Yes", "Yes_vs_No", "Yes_vs_No", "Yes_vs_No", "Yes_vs_No", "No_vs_Yes","No_vs_Yes","No_vs_Yes","No_vs_Yes","Yes_vs_No", "Yes_vs_No"))
+
+variables_figS7 <- all_variables %>% filter(variable %in% c('gender', 'IS_CASE_A_FOODHANDLER', 'travel', 'vaccine'))
+
+variables_to_assess <- variables_figS7
+
+for (col in variables_to_assess$variable) {
+  cat("Column:", col, "\n")
+  print(unique(qc_filtered_metadata[[col]]))
+  print(sum(is.na(qc_filtered_metadata[[col]])))
+}
+# Column: vaccine 
+# [1] "Yes"        "No/Unknown" ""          
+# [1] 0
+# Column: gender 
+# [1] "Male"   "Female" ""      
+# [1] 0
+# Column: IS_CASE_A_FOODHANDLER 
+# [1] ""    "No"  "Yes"
+# [1] 0
+# Column: travel 
+# [1] ""    "No"  "Yes"
+# [1] 0
+
+juniper_results <- clade3a_juniper_pi_0.4_juniper
+sampling_rate <- "0.4"
+
+format_pvalue <- function(p) {
+  if (p < 0.001) "p < 0.001" else paste("p = ", round(p, 3))
+}
+
+for (i in seq_len(nrow(variables_to_assess)))
+{
+  variable <- variables_to_assess$variable[i]
+  variable_name <- variables_to_assess$variable_name[i]
+  legend_name <- variables_to_assess$legend_name[i]
+  this_comparison <- variables_to_assess$comparison[i]
+  this_comparison_alt <- variables_to_assess$comparison_alt[i]
+  
+  print(variable)
+  print(sampling_rate)
+
+  if (variable=="homelessness") {
+    colorway = c("#F2B134", "#6C5BD3") # orange and purple
+    legend_pos = "left"
+  } else if (variable == "illicit_ever") {
+    colorway = c("#F48FB1", "#4B7BDC") # pink and blue
+    legend_pos = "left"
+  } else {
+    colorway = c("#E3B861", "#4CB3A2") # default pale orange and teal
+    legend_pos = "right"
+  }
+  
+  transmission_distributions = transmission_by_variable_distributions(juniper_results, qc_filtered_metadata, variable=variable, name_var="MASPHL_Sequencing_ID", drop=c("missing", "Unknown"))
+
+  p_values_table <- transmission_by_variable_comparison(juniper_results, qc_filtered_metadata, variable=variable, name_var="MASPHL_Sequencing_ID", method="b")
+
+  if(variable == "IS_CASE_A_FOODHANDLER" || variable == "travel" || variable == "unstablehousing")
+  {
+    p_values_table <- transmission_by_variable_comparison(juniper_results, qc_filtered_metadata, variable=variable, name_var="MASPHL_Sequencing_ID", method="b", comparator="No")
+  }
+  
+  probability_of_transmission_plot_p_value <- filter(p_values_table$p, comparison == this_comparison) %>% dplyr::pull(pval)
+
+  if(length(probability_of_transmission_plot_p_value) == 0)
+  {
+    probability_of_transmission_plot_p_value <- filter(p_values_table$p, comparison == this_comparison_alt) %>% dplyr::pull(pval)
+  }
+  
+  probability_of_transmission_plot_p_value_polished <- format_pvalue(probability_of_transmission_plot_p_value)
+  print("probability of trasmission p value unpolished and polished")
+  print(probability_of_transmission_plot_p_value)
+  print(probability_of_transmission_plot_p_value_polished)
+  probability_of_transmission_plot <- plot_transmission_by_variable(transmission_distributions, variable_name=variable_name, legend_name=legend_name, type="p", colors=colorway, title=probability_of_transmission_plot_p_value_polished)
+
+  ggsave(paste(OUTPUT_DIR, "/figS7_", variable, "_probability_of_transmission.png", sep=""), probability_of_transmission_plot, width=width, height=height)
+  ggsave(paste(OUTPUT_DIR, "/figS7_", variable, "_probability_of_transmission.pdf", sep=""), probability_of_transmission_plot, width=width, height=height)
+
+  probability_of_transmission_means <- retrieve_means_for_transmission_by_variable(transmission_distributions, variable_name=variable_name, type="p")
+  write.table(probability_of_transmission_means, paste(OUTPUT_DIR, "/figS7_", variable, "_probability_of_transmission_means.txt", sep=""), sep = "\t", row.names = FALSE, quote = FALSE)
+
+  number_transmissions_plot_p_value <- filter(p_values_table$n, comparison == this_comparison) %>% dplyr::pull(pval)
+
+  if(length(number_transmissions_plot_p_value) == 0)
+  {
+    number_transmissions_plot_p_value <- filter(p_values_table$n, comparison == this_comparison_alt) %>% dplyr::pull(pval)
+  }
+
+  number_transmissions_plot_p_value_polished <- format_pvalue(number_transmissions_plot_p_value)
+  print("num transmissions p value unpolshed and polished")
+  print(number_transmissions_plot_p_value)
+  print(number_transmissions_plot_p_value_polished)
+
+  number_transmissions_plot <- plot_transmission_by_variable(transmission_distributions, variable_name=variable_name, legend_name=legend_name, type="n", colors=colorway, title=number_transmissions_plot_p_value_polished)
+  ggsave(paste(OUTPUT_DIR, "/figS7_", variable, "_number_transmissions.png", sep=""), number_transmissions_plot, width=width, height=height)
+  ggsave(paste(OUTPUT_DIR, "/figS7_", variable, "_number_transmissions.pdf", sep=""), number_transmissions_plot, width=width, height=height)
+
+  number_transmissions_means <- retrieve_means_for_transmission_by_variable(transmission_distributions, variable_name=variable_name, type="n")
+  write.table(number_transmissions_means, paste(OUTPUT_DIR, "/figS7_", variable, "_number_transmissions_means.txt", sep=""), sep = "\t", row.names = FALSE, quote = FALSE)
+
+  plot(number_transmissions_plot)
+  plot(probability_of_transmission_plot)
+}
+
+```

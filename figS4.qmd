@@ -1,0 +1,210 @@
+---
+title: "Figure S4"
+execute:
+  echo: false
+---
+
+**Figure S4. Time-resolved phylogeny of clade IIIA sequences.** IIIA sequences from the 2018-20202023-2024 outbreak in both MA and NH. Tips are colored by reported residence location (state or MA county). 
+
+```{python}
+import os
+import baltic as bt
+import pandas as pd
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
+import matplotlib.patches as mpatches
+import matplotlib.font_manager
+
+matplotlib.font_manager.findfont('Calibri')
+mpl.rcParams['font.family'] = 'Calibri'
+mpl.rcParams['font.sans-serif'] = ['Calibri'] # Specify Calibri for the sans-serif family
+mpl.rcParams['font.family'] = 'sans-serif'
+mpl.rcParams['font.weight']=200
+mpl.rcParams['axes.labelweight']=200
+mpl.rcParams['font.size']=22
+
+%matplotlib inline
+```
+
+```{python}
+OUTPUT_DIR = os.getenv('OUTPUT_DIR')
+METADATA_FILE = os.getenv('METADATA_FILE')
+RENAMED_NEXUS_FILE = os.getenv('RENAMED_NEXUS_FILE')
+
+OUTPNG = OUTPUT_DIR + "/figS4.png"
+OUTPDF = OUTPUT_DIR + "/figS4.pdf"
+```
+
+```{python}
+# sanity check
+meta = pd.read_csv(METADATA_FILE)
+meta["county_of_residence"] = meta["county_of_residence"].fillna("")
+print(meta["county_of_residence"].unique())
+
+countyColor1 = {"Barnstable County":"#2c2071",
+                  "Berkshire County":"#680000",
+                  "Bristol County":"#0485e4",
+                  "Essex County":"#b4ff06",
+                  "Franklin County":"#a90000",
+                  "Hampden County":"#ea6800",
+                  "Hampshire County":"#de2300",
+                  "Middlesex County":"#93d200",
+                  "Norfolk County":"#00af9e",
+                  "Plymouth County":"#254bc8",
+                  "Suffolk County":"#2de000",
+                  "Worcester County":"#d1a100",
+                  "Dukes County":"#5A2071",
+                  "Nantucket County":"#71204B",
+                  "NH":"#808080"}
+                  #"CT":"#000000"}
+
+meta[meta["county_of_residence"]==""]
+# mostly NH samples, a couple nonresident samples from MA
+```
+
+```{python}
+tree = bt.loadNewick(RENAMED_NEXUS_FILE)
+#print([tip.name for tip in tree.getExternal()])
+print(len([tip.name for tip in tree.getExternal()])) #266
+```
+
+```{python}
+tree_tips = set(t.name for t in tree.getExternal()) 
+print(len(tree_tips)) # 266
+# for now, including the MAVEN NH and CT samples, as well as the NH samples - I decided to set their county_of_residence to "NH" and "CT" respectively
+meta.loc[meta["MASPHL_Sequencing_ID"] == "HepA/USA/MA/0212/2019", "county_of_residence"] = "NH"
+meta.loc[meta["MASPHL_Sequencing_ID"] == "HepA/USA/MA/0307/2019", "county_of_residence"] = "CT"
+metaf = meta[meta["MASPHL_Sequencing_ID"].isin(tree_tips)]
+
+###################
+# there aren't any non-QC-passing samples in this set anymore
+drop_set = metaf[metaf["Sample_Passed_QC"] != "Yes"]["MASPHL_Sequencing_ID"].tolist()
+# also drop the references, MN062167.1 ON524418.1, and outgroup AB279732.1
+drop_set.append("MN062167.1")
+drop_set.append("ON524418.1")
+drop_set.append("AB279732.1")
+drop_set.append("HepA/USA/MA/0046/2018") # not outbreak, no county info
+
+# if sample is from NH, make its county of residence "NH"
+metaf.loc[metaf["MASPHL_Sequencing_ID"].str.startswith("HepA/USA/NH", na=False), "county_of_residence"] = "NH"
+
+# manually set county of residence for the nonresident MA samples
+metaf.loc[metaf["MASPHL_Sequencing_ID"]=="HepA/USA/MA/0307/2019", "county_of_residence"] = "CT" # not in set - IB subgenotype
+metaf.loc[metaf["MASPHL_Sequencing_ID"]=="HepA/USA/MA/0212/2019", "county_of_residence"] = "NH" 
+
+print("Tips in drop_set that match tree:", set(drop_set) & tree_tips) # {'HepA/USA/MA/0046/2018'}
+print("Tips in drop_set NOT in tree:", set(drop_set) - tree_tips) #none
+
+tips_to_keep = [t for t in tree.getExternal() if t.name not in drop_set]
+len(tips_to_keep)
+tree = tree.reduceTree(tips_to_keep)
+print(len([tip.name for tip in tree.getExternal()]))
+
+# re-filter
+metaf = metaf[metaf["MASPHL_Sequencing_ID"].isin([tip.name for tip in tree.getExternal()])]
+print(len(metaf))
+
+print(metaf["county_of_residence"].unique())
+
+print(len(tree.root.children)) #2 - tree is rooted
+tree.root
+
+len([t for t in tree.getExternal()]) #262
+```
+
+```{python}
+# treetime outputs decimal year date, stored in num_date annotation
+# set absolute time, and add a trait for county color
+for t in tree.getExternal():
+    if "date" in t.traits:
+        t.absoluteTime = t.traits["date"]
+        if t.name:      
+            subs = metaf.loc[metaf['MASPHL_Sequencing_ID'] == t.name, 'county_of_residence']
+            if len(subs)>0:
+                testcounty = subs.iloc[0]
+                t.traits["county"] = testcounty
+                if testcounty in countyColor1.keys():
+                    t.traits["county_color"] = countyColor1[testcounty]
+                else:
+                    print(f"{t.name} {testcounty} not in keys")
+            else:
+                print(f"{t.name} not in meta")
+    else:
+        print(f"{t.name} doesn't have date trait")
+
+for t in tree.getInternal():
+    if "date" in t.traits:
+        t.absoluteTime = t.traits["date"]
+```
+
+```{python}
+fig = plt.figure(figsize=(10, 15), facecolor='w')
+gs = gridspec.GridSpec(1, 1, wspace=0.0)
+ax = plt.subplot(gs[0], facecolor='w')
+
+x_attr = lambda k: k.absoluteTime
+tree.plotTree(ax, x_attr=x_attr, colour='k', linewidth=1)
+
+for tip in tree.getExternal():
+    color = tip.traits.get("county_color", "#000000")  # default black jsut in case any are missing
+    ax.plot(tip.absoluteTime, tip.y, 'o', color=color, markersize=6)
+
+[ax.spines[loc].set_visible(False) for loc in ax.spines if loc not in ['bottom']]
+
+start_year = int(tree.root.absoluteTime) #traits["num_date"])#absoluteTime)
+end_year = int(tree.root.absoluteTime + tree.treeHeight) + 1
+
+# Major (year) lines
+for y in range(start_year, end_year):
+    ax.axvline(y, color='lightblue', linewidth=1, zorder=-1)
+# Minor (year.5) lines
+for y in [y + 0.5 for y in range(start_year, end_year)]:
+    ax.axvline(y, color='lightgray', linewidth=0.8, linestyle='--', zorder=-1)
+
+x_ticks = list(range(start_year, end_year))
+x_labels = [str(y) for y in x_ticks]
+
+ax.set_xticks(x_ticks)
+ax.set_xticklabels(x_labels, rotation=0, fontsize=10)
+
+box_width = 0.1
+box_height = 1
+label_x = tree.root.absoluteTime + tree.treeHeight + 0.2
+
+for tip in tree.getExternal():
+    color = tip.traits.get("county_color", "#000000")
+    # Dotted line to strip (thinner)
+    ax.plot([tip.absoluteTime, label_x + box_width / 2],
+            [tip.y, tip.y],
+            linestyle=':', color=color, linewidth=1.2)#0.8)
+    # Color box
+    rect = plt.Rectangle(
+        (label_x, tip.y - box_height / 2),
+        box_width, box_height,
+        facecolor=color,
+        edgecolor='none'
+    )
+    ax.add_patch(rect)
+    
+# legend
+legend_patches = [mpatches.Patch(color=c, label=k) for k, c in countyColor1.items()]
+ax.legend(handles=legend_patches, title="MA county",
+          bbox_to_anchor=(1.05, 1), loc='upper left',
+          borderaxespad=0., frameon=False,
+          fontsize=10, title_fontsize=11)  # smaller legend text
+
+# AXIS CLEANUP
+ax.tick_params(size=0)
+ax.set_yticks([])
+ax.set_yticklabels([])
+ax.set_xlim(tree.root.absoluteTime - 0.2, tree.root.absoluteTime + tree.treeHeight + 0.5)
+ax.set_ylim(-5, tree.ySpan + 5)
+
+fig.savefig(OUTPNG, dpi=300,bbox_inches="tight")
+fig.savefig(OUTPDF, bbox_inches='tight')
+# bbox_inches="tight" prevents legend from being clipped (bc my legend extends outside the axes with bbox_to_anchor)
+# in some environments, show() can clear the figure - move the saves before plt.show() so it doesn't save blank
+
+plt.show()
+```

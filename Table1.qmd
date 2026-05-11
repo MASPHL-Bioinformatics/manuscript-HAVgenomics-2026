@@ -1,0 +1,41 @@
+---
+title: "HAV - Table 1"
+author: "Zack Thompson"
+date: today
+format:
+  pdf:
+    include-in-header:
+      text: |
+        \usepackage{lscape}
+        \newcommand{\blandscape}{\begin{landscape}}
+        \newcommand{\elandscape}{\end{landscape}}
+---
+
+**Table 1.** Epidemiological characteristics of hepatitis A cases reported in MA and NH, 2018-2024. ‘Outbreak-Associated Cases’ are those meeting state and CDC hepatitis A outbreak definitions. ‘Successfully Sequenced Cases’ include all samples that generated high-quality HAV genome sequences. Not all outbreak-associated cases were successfully sequenced, and sequenced cases include both outbreak-associated and non-outbreak-associated cases. 
+
+```{r, echo=FALSE, include=FALSE}
+rm(list = ls())
+CLEANING_SCRIPT=Sys.getenv("CLEANING_SCRIPT")
+source(CLEANING_SCRIPT)
+
+pkglist = c("stringr", "kableExtra")
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r, echo=FALSE}
+##### Load and prepare data
+final_summary_2[19, 1] <- "Other\u00B3"
+
+y <- kbl(final_summary_2, format="latex", booktabs = TRUE, linesep="", caption="Metadata table",
+      col.names=c("", "Outbreak-associated MA cases: % (N=X)", "Successfully sequenced MA cases: % (N=X)\u00B9", "Outbreak-associated NH cases: % (N=X)", "Outbreak-associated MA cases: % (N=X)", "Successfully sequenced MA cases: % (N=X)\u00B9", "All MA cases: % (N=X)\u00B2")) %>%
+      footnote(number=c("\\\\scriptsize{Successfully sequenced cases are not a subset of the outbreak cases, and contain both outbreak and non-outbreak cases; 1 sequenced case in 2018-2020 and 7 sequenced cases in 2023-2024 were not outbreak-associated.}",
+                        "\\\\scriptsize{Contains all samples from 2018-2024, whether outbreak-associated or successfully sequenced.}",
+                        "\\\\scriptsize{To avoid identifiability due to low numbers, individuals identifying as American Indian/Alaska Native and Native Hawaiian/Pacific Islander have been grouped with those that selected Other as race/ethnicity.}"), general_title = "", threeparttable = TRUE, escape=FALSE) %>%
+  kable_styling(font_size=6, latex_options="scale_down") %>%
+  row_spec(which(final_summary_2$`Outbreak-associated MA cases: % (N=X) - 2018-2020`==""), bold=T, color="white", background="gray") %>%
+  column_spec(c(2,4,5,7), width="1.05in") %>%
+  column_spec(c(3,6), width="1.2in") %>%
+  landscape()
+
+add_header_above(y, c("","2018-2020"=3, "2023-2024"=2, "2018-2024"=1))
+```

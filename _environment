@@ -1,0 +1,71 @@
+OUTPUT_DIR="outputs"
+
+# #####################################################################
+# ## RENAMING SCRIPT (INTERNAL)
+# #####################################################################
+# # 2A
+# UNROOTED_WGS_TREE="inputs_archive/txid12092_2025_02_03_7125_unambiguous_bases.fasta_human_host.fasta_and_our_WGS.fasta_mafft_aligned.fasta_iqtree_gtr_i.treefile" #RENAMED_UNROOTED_WGS_TREE
+# # 2C, S3
+# IIIA_ALL_TREE="inputs_archive/IIIA.fasta_mafft_aligned.fasta_iqtree_gtr_i.treefile" #RENAMED_IIIA_ALL_TREE
+# # S5 (also subset for fig 3B and S6)
+# ALL_PAIRS_SNP_DIST="inputs_archive/samples_passing_QC.txt_MA.txt_all_pairs.txt_SNP_distances.txt" #RENAMED_ALL_PAIRS_SNP_DIST
+# # S8
+# IIIA_TR_tree="inputs_archive4/our_sequences_VP1_2A_junction_IIIA_2018_2020.fasta_with_outgroup.fasta_mafft_aligned.fasta_gtr_i.treefile_rerooted_with_outgroup.txt_outgroup_removed.txt" #RENAMED_IIIA_TR_tree
+# # delta statistic
+# IIIA_WGS_TREE="inputs_archive/our_sequences_WGS_IIIA_2018_2020.fasta_with_outgroup.fasta_mafft_aligned.fasta_gtr_i.treefile_rerooted_with_outgroup.txt_outgroup_removed.txt"
+
+#####################################################################
+## DATA CLEANING SCRIPT
+#####################################################################
+CLEANING_SCRIPT="HAV_cleaning_script.R"
+METADATA_FILE="../HAV_manuscript_inputs/internal/HAV_MetaSeqData_2018-2024_17MAR26_DPH_FINAL.csv"
+TOWN_SHAPE="../HAV_manuscript_inputs/public/maTowns_NH_CT.shp"
+STATE_POP="../HAV_manuscript_inputs/public/donahue_denom_state.csv"
+TOWN_POP="../HAV_manuscript_inputs/public/donahue_denom_town.csv"
+TOWN_COUNTRY="../HAV_manuscript_inputs/public/ma_town_county_key.csv"
+MMWR_KEY="../HAV_manuscript_inputs/public/MMWR Weeks HepA.xlsx"
+IMMUNE="../HAV_manuscript_inputs/internal/DL2077_HepA_MMWR_Weeks_02Jan2025_ ToSend.xlsx"
+NH_SAMPLES="../HAV_manuscript_inputs/internal/HepA_samples_NH.txt"
+NH_METADATA="../HAV_manuscript_inputs/internal/Hepatitis A NH Outbreak Cases 2018-2020_Updated.xlsx"
+
+# Fig 1
+COUNTY_SHAPE="../HAV_manuscript_inputs/public/county_shape.shp"
+
+# Fig 2
+EPI_LINKAGE_SCRIPT="epi_linkages.R"
+RENAMED_UNROOTED_WGS_TREE="../HAV_manuscript_inputs/public/RENAMED_Genbank_7125_human_host_with_internal_isolates_gtr_i.treefile"
+RENAMED_IIIA_WGS_TREE="../HAV_manuscript_inputs/public/aligned_2C_IIIA_QC_tree.fasta.treefile"
+GENBANK_METADATA="../HAV_manuscript_inputs/public/txid12092_2025_02_03_7125_unambiguous_bases.fasta_names.txt_metadata.txt_with_GHOST_clade.xlsx_human_host_7.txt"
+
+# Fig 3
+JUNIPER_HELPER_SCRIPT="important_juniper_helpers_25apr29_from_jul252025.R"
+JUNIPER_RES="../HAV_manuscript_inputs/public/renamed_clade3a_juniper_pi_0.4_juniper_downsampled.RData"
+JUNIPER_OUT="outputs/direct_transmissions_IIIA_clade3a_juniper_pi_0.4.txt"
+RENAMED_ALL_PAIRS_SNP_DIST="../HAV_manuscript_inputs/public/RENAMED_samples_passing_QC.txt_MA.txt_all_pairs.txt_SNP_distances.txt"
+COMBINED_OUT="outputs/combined_epi_juniper_transmissions_0.5.tsv"
+
+# Fig 4
+TR_TREE="../HAV_manuscript_inputs/public/4A_SUBSET_our_sequences_VP1_2B_junction_IIIA_ALIGNED.fasta.treefile"
+WGS_TREE="../HAV_manuscript_inputs/public/4A_SUBSET_our_sequences_WGS_IIIA_ALIGNED.fasta.treefile"
+COVERAGE_XLSX="../HAV_manuscript_inputs/public/HAV_Sequencing_Coverage.xlsx"
+HAV_PANEL_SHEET="HAV_Specific_Panel"
+TWIST_SHEET="Twist_Panel"
+METAGENOMIC_COVERAGE="Metagenomic_Panel"
+TABLES1_SCRIPT="tableS1.R"
+TABLE_S1="outputs/Table S1.csv"
+
+#S3
+RENAMED_IIIA_ALL_TREE="../HAV_manuscript_inputs/public/RENAMED_IIIA_gtr_i.treefile"
+
+# S4
+RENAMED_NEXUS_FILE="../HAV_manuscript_inputs/public/timetree.nexus"
+
+# fig S5
+CITIES_LAT_LONG_FILE="../HAV_manuscript_inputs/public/all_cities.txt_uppercase.txt_unique.txt_latitude_longitude.txt_updated.txt"
+
+# fig S8
+RENAMED_IIIA_TR_TREE="../HAV_manuscript_inputs/public/RENAMED_VP1-2B_TR_IIIA.txt"
+
+# delta statistic
+DELTA_CODE="code.R"
+RENAMED_DELTA_WGS_TREE="../HAV_manuscript_inputs/public/aligned_delta_IIIA_QC_tree.fasta.treefile"

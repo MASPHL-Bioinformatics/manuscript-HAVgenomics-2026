@@ -1,0 +1,51 @@
+---
+title: "Figure S8"
+execute:
+  echo: false
+---
+
+**Figure S8. Maximum likelihood phylogeny of all IIIA 2018-2020 VP1-2B region sequences.** Identical genomes are shown as dots on the vertical branch. 
+
+```{r}
+rm(list = ls())
+pkglist = c("ape", "ggplot2", "ggtree","dplyr", "stringr", "cowplot", "phytools")
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+RENAMED_IIIA_TR_TREE=Sys.getenv("RENAMED_IIIA_TR_TREE")
+
+tree <- read.tree(RENAMED_IIIA_TR_TREE)
+tree <- drop.tip(tree, "HepA/USA/MA/0046/2018")
+length(tree$tip.label)
+tree <- phytools::midpoint.root(tree)
+
+tree_plotted <- ggtree(tree) +
+  geom_tippoint(size = 1) +
+  theme_tree2() +
+  theme(legend.position = "none",
+        axis.line.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank()) +
+  geom_treescale(x = 0.002, y = 30, width = 0.001, fontsize = 2)
+
+# getMRCA for an unrooted tree returns the node at the base of ggtree's default layout
+# this node has no biological meaning as a root, just an artifact of how the tree was ladderized/displayed
+# adding a segment here implies directionality that doesn't exist in the data
+# I midpoint rooted it upstream instead of this
+# # add root branch
+# root_y <- tree_plotted$data$y[tree_plotted$data$node == getMRCA(tree, tree$tip.label)]
+# tree_plotted <- tree_plotted + 
+#   annotate("segment", x = -0.0001, xend = 0, y = root_y, yend = root_y)
+
+plot(tree_plotted)
+
+# save
+ggsave(paste(OUTPUT_DIR, "figS8.png", sep="/"), tree_plotted, width=5, height=15)
+ggsave(paste(OUTPUT_DIR, "figS8.pdf", sep="/"), tree_plotted, width=5, height=15)
+
+# June 4, 2025
+# August 13, 2025
+```

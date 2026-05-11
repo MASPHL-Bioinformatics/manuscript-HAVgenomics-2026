@@ -1,0 +1,566 @@
+---
+title: "Figure 1"
+execute:
+  include: false
+---
+
+**Figure 1. Total confirmed and sequenced HAV cases from late 2018 through early 2024.** 
+
+**A)** Top: Total confirmed cases in MA, shaded by whether cases were successfully sequenced in this study (left axis) and HAV vaccines administered in MA per 100,000 people (right axis). Bottom: outbreak-associated cases in NH, shaded by whether cases were successfully sequenced in this study. 
+
+**B)** HAV vaccines administered by vaccine provider type. 
+
+**C)** Total outbreak-associated cases by MA town. 
+
+**D)** Total sequenced cases by MA town, including both outbreak-associated and non-outbreak-associated cases.  
+
+```{r}
+rm(list = ls())
+pkglist = c("tinytex", "ggplot2", "ggpattern", "ggpubr", "vegan", "stringr", "splitstackshape")
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+COUNTY_SHAPE=Sys.getenv("COUNTY_SHAPE")
+CLEANING_SCRIPT=Sys.getenv("CLEANING_SCRIPT")
+source(CLEANING_SCRIPT)
+```
+
+```{r}
+#################################
+##### Load and prepare data #####
+#################################
+# we were going to include CT and NH cases initially, but have since to at least hold off on that for now. However, Lydia still needs the start of the NH shape for her plot, so only excluding CT with this subset
+metadata_town_clean <- subset(metadata_town_clean, cityResidence!="Connecticut")
+
+##### Shapefiles
+# town shapes
+town_shape <- read_sf(TOWN_SHAPE)
+# the TOWN variable gives all capitals for all town names, so just changing it so only the first letter of every word is capitalized.
+town_shape$town <- stri_trans_totitle(town_shape$TOWN)
+# county shapes
+county_shape <- read_sf(COUNTY_SHAPE)
+# both datasets have a column called "geometry" which describes the shape of the object in that row (either town or county). So I am changing the name of the "geometry" column in the county_shape dataframe to "countyGeo" so that I can have county and town shape variables in one dataset in later merge steps.
+names(county_shape)[names(county_shape)=="geometry"] <- "countyGeo"
+
+##### Processing cases by town
+# Merge in town shape to cases_town_all. I went to do this in the cleaning program, but excel can't handle the export of geometry scf data (kept giving null values), so had to create the desired shape file and then load/merge it in here.
+cases_town_all <- merge(metadata_town_clean,
+                        town_shape,
+                        by.x="cityResidence",
+                        by.y="town",
+                        all.x=TRUE)
+
+# merge in county shape to cases_town_all.
+cases_town_all <- merge(cases_town_all,
+                        county_shape,
+                        by.all="county",
+                        all.x=TRUE)
+
+# we have NH data; currently, that row is identified using the cityResidence variable (cityResidence=NH for those out-of-state-cases). Adding NH as a county if not an MA town
+cases_town_all$county <- ifelse(cases_town_all$cityResidence != "New Hampshire", cases_town_all$county, "New Hampshire")
+
+# add a county-case density variable for proper coloring of the choropleth that will match with the phylogenetic tree
+#cases_town_all$townCaseGrp6 <- paste0(cases_town_all$sequencedCtGrp6, "-", cases_town_all$county)
+cases_town_all$iiiaTownGrp <- paste0(cases_town_all$iiiaCtGrp3, "-", cases_town_all$county)
+
+# Factoring variables for plotting so count/rate groups aren't lost in the legend labels if there are no observations of a certain count/rate group.
+cases_town_all$overallCtGrp6 <- factor(cases_town_all$overallCtGrp6,
+                                       levels=c("0",
+                                                "1-5",
+                                                "6-10",
+                                                "11-30",
+                                                "31-60",
+                                                ">60"))
+
+cases_town_all$sequencedCtGrp6 <- factor(cases_town_all$sequencedCtGrp6,
+                                         levels=c("0",
+                                                  "1-5",
+                                                  "6-10",
+                                                  "11-30",
+                                                  "31-60",
+                                                  ">60"))
+
+cases_town_all$outbreakCtGrp6 <- factor(cases_town_all$outbreakCtGrp6,
+                                        levels=c("0",
+                                                 "1-5",
+                                                 "6-10",
+                                                 "11-30",
+                                                 "31-60",
+                                                 ">60"))
+
+cases_town_all$outbreak1OverallCtGrp6 <- factor(cases_town_all$outbreak1OverallCtGrp6,
+                                                levels=c("0",
+                                                         "1-5",
+                                                         "6-10",
+                                                         "11-30",
+                                                         "31-60",
+                                                         ">60"))
+
+cases_town_all$outbreak1SequencedCtGrp6 <- factor(cases_town_all$outbreak1SequencedCtGrp6,
+                                                  levels=c("0",
+                                                           "1-5",
+                                                           "6-10",
+                                                           "11-30",
+                                                           "31-60",
+                                                           ">60"))
+
+cases_town_all$outbreak1OutbreakCtGrp6 <- factor(cases_town_all$outbreak1OutbreakCtGrp6,
+                                                 levels=c("0",
+                                                          "1-5",
+                                                          "6-10",
+                                                          "11-30",
+                                                          "31-60",
+                                                          ">60"))
+
+cases_town_all$outbreak2OverallCtGrp3 <- factor(cases_town_all$outbreak2OverallCtGrp3,
+                                                levels=c("0",
+                                                         "1-5",
+                                                         ">5"))
+
+cases_town_all$outbreak2SequencedCtGrp3 <- factor(cases_town_all$outbreak2SequencedCtGrp3,
+                                                  levels=c("0",
+                                                           "1-5",
+                                                           ">5"))
+
+cases_town_all$outbreak2OutbreakCtGrp3 <- factor(cases_town_all$outbreak2OutbreakCtGrp3,
+                                                 levels=c("0",
+                                                          "1-5",
+                                                          ">5"))
+
+cases_town_all$outbreak1OverallRtGrp6 <- factor(cases_town_all$outbreak1OverallRtGrp6,
+                                                levels=c("0",
+                                                         ">0-5",
+                                                         ">5-10",
+                                                         ">10-30",
+                                                         ">30-60",
+                                                         ">60"))
+
+cases_town_all$outbreak1SequencedRtGrp6 <- factor(cases_town_all$outbreak1SequencedRtGrp6,
+                                                  levels=c("0",
+                                                           ">0-5",
+                                                           ">5-10",
+                                                           ">10-30",
+                                                           ">30-60",
+                                                           ">60"))
+
+cases_town_all$outbreak2OverallRtGrp3 <- factor(cases_town_all$outbreak2OverallRtGrp3,
+                                                levels=c("0",
+                                                         ">0-5",
+                                                         ">5"))
+
+cases_town_all$outbreak2SequencedRtGrp3 <- factor(cases_town_all$outbreak2SequencedRtGrp3,
+                                                  levels=c("0",
+                                                           ">0-5",
+                                                           ">5"))
+
+# # Check the actual min/max of your date column
+# range(cases_week_all$endDt, na.rm=TRUE)
+# # [1] "1970-01-01" "2024-11-23"
+
+# # This is the Unix epoch date, so R didn't coerce this value to a date correctly. 
+# # Find the offending rows
+# cases_week_all %>% filter(endDt == as.Date("1970-01-01"))
+# # wkYr=0, endDt = "2024-11-23"
+# head(cases_week_all)
+
+# cases_week_all %>% filter(endDt == as.Date("1970-01-01"))
+
+# # Check if any dates fall outside the limits you set
+# cases_week_all %>% 
+#   filter(endDt < min(cases_week_all$endDt) | endDt > max(cases_week_all$endDt))
+
+# # Also check for NAs
+# sum(is.na(cases_week_all$endDt))
+```
+
+```{r}
+#########################################################
+##### Figure 1 - Outbreak cases and sequenced cases #####
+#########################################################
+##### epi outbreak curve for MA
+fig1_a <- ggplot() +
+  ##### epi curve
+  # non-outbreak cases stacked on top the sequenced and non-sequenced outbreak cases
+  geom_col(data=cases_week_all,
+           aes(x=endDt,
+               y=outNoseqYes+outNoseqNo+outYesseqNo+outYesseqYes,
+               fill="Non-outbreak")) +
+  # non-sequenced outbreak cases on top of the sequenced cases
+  geom_col(data=cases_week_all,
+           aes(x=endDt,
+               y=outYesseqNo+outYesseqYes,
+               fill="Outbreak (not sequenced)")) +
+  # sequenced cases as the bottom layer
+  geom_col(data=cases_week_all,
+           aes(x=endDt,
+               y=outYesseqYes,
+               fill="Sequenced outbreak")) +
+  ##### outbreak markers
+  # line for 2018-2020 outbreak notice
+  geom_segment(aes(x=as.Date("2018-08-22"),
+                   xend=as.Date("2018-08-22"),
+                   y=0,
+                   yend=29),
+               linetype=3,
+               color="black") +
+  # line for 2023-2024 outbreak notice
+  geom_segment(aes(x=as.Date("2023-12-04"),
+                   xend=as.Date("2023-12-04"),
+                   y=0,
+                   yend=29),
+               linetype=3,
+               color="black") +
+  # shading the COVID emergency response period
+  annotate("rect",
+           xmin=as.Date("2020-03-10"),
+           xmax=as.Date("2021-06-15"),
+           ymin=0,
+           ymax=29,
+           alpha=0.1,
+           fill="#808080") +
+  geom_errorbarh(aes(xmin = as.Date("2020-03-10"), xmax = as.Date("2021-06-15"),
+                 y=28.75),
+                 colour = "#4D4D4D",
+                 size=0.4) +
+  # line for rolling 4-week average of vaccines administered per 100,000 residents. I have to subset the NA cases out (the first few rows in the rolling vaccination rate calculation) so I don't get an annoying error.
+  geom_line(data=subset(cases_week_all, !is.na(rollingVaxPer100000)),
+            aes(x=endDt,
+                y=rollingVaxPer100000,
+                color="Vaccinations per\n100,000 people")) +
+  ##### plot labels
+  labs(x="Week end date",
+       y="MA case counts",
+       title="a") +
+  ##### plot color choices
+  scale_fill_manual(name="Case type",
+                    breaks=c("Sequenced outbreak", "Outbreak (not sequenced)", "Non-outbreak"),
+                    values=c("Sequenced outbreak"="#4719E4",
+                             "Outbreak (not sequenced)"="#9E8AE0",
+                             "Non-outbreak"="lightgray"),
+                    drop=FALSE) +
+  ##### axis settings
+  scale_y_continuous(expand = c(0, 0),
+                     breaks=c(0,5,10,15,20,25),
+                     sec.axis=sec_axis(~., 
+                                       name="Vaccinations per\n100,000 people", 
+                                       breaks=c(0,5,10,15,20,25))) +
+  scale_x_date(expand = c(0, 0),
+               # I wanted to manually choose the breaks as yearly on January, so with my knowledge doing it manually was the way to go
+               breaks=c(as.Date("2019-01-01"), 
+                        as.Date("2020-01-01"), 
+                        as.Date("2021-01-01"), 
+                        as.Date("2022-01-01"), 
+                        as.Date("2023-01-01"), 
+                        as.Date("2024-01-01")),
+               date_labels="%b %Y",
+               # creating a fake secondary x-axis for the 2018-2020 outbreak response label. In the theme(), I have erased all aspects of this axis, but have made a custom label. This allowed me to label the plot outside of the plotting area.
+               sec.axis = sec_axis(~.,
+                                   # now adding the 2018-2020 outbreak label
+                                   breaks=c(as.Date("2018-05-15"), as.Date("2020-03-05"), as.Date("2023-09-07")),
+                                   labels=c("Statewide outbreak\nresponse initiated\nAug 2018", "MA COVID-19 \nstate of emergency \ndeclaration", "Statewide outbreak\nresponse initiated\nDec 2023"))) +
+  ## using this to expand the plot area a bit to allow me to label a bit better without labels being cut off. I tried to do this to label above the plot, but it was adding length to the x-axis which was not desirable.
+  coord_cartesian(clip="off", expand=FALSE, ylim=c(0,28)) +
+  ##### plot theme
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        text = element_text(family = "sans"),
+        strip.background = element_blank(),
+        axis.text=element_text(size=9),
+        axis.title=element_text(size=9),
+        plot.title=element_text(size=12, hjust=-0.09),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        strip.text = element_text(size = 9),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        # get rid of top x-axis that we created for the 2018-2020 outbreak response.
+        axis.ticks.x.top = element_blank(),
+        axis.text.x.top = element_text(margin = margin(b = 5), hjust=0, size=9, family="sans", color="black"),
+        axis.line.x.top = element_blank(),
+        plot.margin = unit(c(0,-0.2,0,0.4), "cm"),
+        legend.key.size = unit(0.2, "cm"),
+        panel.background = element_rect(fill = "transparent",
+                                        colour = NA_character_),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill = "transparent",
+                                       colour = NA_character_),
+        legend.background = element_rect(fill = "transparent"),
+        legend.box.background = element_rect(fill = "transparent", colour="transparent"),
+        legend.key = element_rect(fill = "transparent"),
+        legend.spacing.y = unit(-0.5, "cm")) +
+  # color for vaccination rate
+    scale_color_manual(name="",
+                       breaks="Vaccinations per\n100,000 people",
+                       values=c('Vaccinations per\n100,000 people'='#818181'))
+plot(fig1_a)
+```
+
+```{r}
+##### epi outbreak curve for NH
+fig1_a2 <- ggplot() +
+  ##### epi curve
+  # non-outbreak cases stacked on top the sequenced and non-sequenced outbreak cases
+  geom_col(data=cases_week_all,
+           aes(x=endDt,
+               y=nhTotWkCaseCt,
+               fill="Outbreak (not sequenced)")) +
+  geom_col(data=cases_week_all,
+           aes(x=endDt,
+               y=nhSeqWkCaseCt,
+               fill="Sequenced outbreak")) +
+  ##### plot labels
+  labs(x="Week end date",
+       y="NH case counts") +
+  ##### axis settings
+  scale_y_continuous(expand = c(0, 0),
+                     breaks=c(0,5,10,15,20,25)) +
+  # using this to expand the plot area a bit to allow me to label a bit better without labels being cut off. I tried to do this to label above the plot, but it was adding length to the x-axis which was not desirable.
+  coord_cartesian(clip="off", expand=FALSE, ylim=c(0,28)) +
+  ##### plot color choices
+  scale_fill_manual(name="Case type",
+                    breaks=c("Sequenced outbreak", "Outbreak (not sequenced)"),
+                    values=c("Sequenced outbreak"="black",
+                             "Outbreak (not sequenced)"="darkgray"),
+                    drop=FALSE) +
+  ##### plot theme
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        text = element_text(family = "sans"),
+        strip.background = element_blank(),
+        axis.text=element_text(size=9),
+        plot.title=element_text(size=12, hjust=-0.055),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        strip.text = element_text(size = 9),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        # get rid of top x-axis that we created for the 2018-2020 outbreak response.
+        axis.ticks.x.top = element_blank(),
+        axis.text.x.top = element_text(margin = margin(b = 5), hjust=0, size=9, family="sans", color="black"),
+        axis.line.x.top = element_blank(),
+        legend.key.size = unit(0.2, "cm"),
+        panel.background = element_rect(fill = "transparent",
+                                        colour = NA_character_),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill = "transparent",
+                                       colour = NA_character_),
+        legend.background = element_rect(fill = "transparent"),
+        legend.box.background = element_rect(fill = "transparent", colour="transparent"),
+        legend.key = element_rect(fill = "transparent"))
+
+plot(fig1_a2)
+```
+
+```{r}
+# plotting vaccines administered by provider
+fig1_b <- ggplot() +
+##### data
+# pediatric doses
+  geom_col(data=subset(cases_week_all, !is.na(rollingWkImmCt_prov2Pediatric)),
+            aes(x=endDt,
+                y=rollingWkImmCt_prov2HealtCent+rollingWkImmCt_prov2CommHealthCent+rollingWkImmCt_prov2CommPharm+rollingWkImmCt_prov2Pediatric,
+                fill="Pediatrician")) +
+  # pharmacy doses
+  geom_col(data=subset(cases_week_all, !is.na(rollingWkImmCt_prov2CommPharm)),
+           aes(x=endDt,
+               y=rollingWkImmCt_prov2HealtCent+rollingWkImmCt_prov2CommHealthCent+rollingWkImmCt_prov2CommPharm,
+               fill="Commercial pharmacy")) +
+  # community health center doses
+  geom_col(data=subset(cases_week_all, !is.na(rollingWkImmCt_prov2CommHealthCent)),
+           aes(x=endDt,
+               y=rollingWkImmCt_prov2HealtCent+rollingWkImmCt_prov2CommHealthCent,
+               fill="Community health center")) +
+  # healthcare center doses
+  geom_col(data=subset(cases_week_all, !is.na(rollingWkImmCt_prov2HealtCent)),
+           aes(x=endDt,
+               y=rollingWkImmCt_prov2HealtCent,
+               fill="Healthcare center")) +
+##### outbreak markers
+# 2018-2020 outbreak marker
+  geom_vline(aes(xintercept=as.Date("2018-08-22")),
+             linetype=3,
+             color="black") +
+# 2023-2024 outbreak marker
+  geom_vline(aes(xintercept=as.Date("2023-12-04")),
+             linetype=3,
+             color="black") +
+# COIVD-19 outbreak marker
+  annotate("rect",
+           xmin=as.Date("2020-03-10"),
+           xmax=as.Date("2021-06-15"),
+           ymin=0,
+           ymax=1350,
+           alpha=0.1,
+           fill="#808080") +
+##### theme
+  theme_bw() +
+  theme(text = element_text(family = "sans"),
+        axis.line.x=element_line(color="black"),
+        axis.line.y=element_line(color="black"),
+        axis.text=element_text(size=8),
+        axis.title=element_text(size=9),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12, hjust=-0.09),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.ticks.x.top = element_blank(),
+        axis.text.x.top = element_text(margin = margin(b = 5), hjust=0, size=9, family="sans"),
+        axis.line.x.top = element_blank(),
+        legend.key.size = unit(0.2, "cm"),
+        plot.margin = unit(c(0,1.21,0,0.125), "cm"),
+        panel.background = element_rect(fill = "transparent",
+                                        colour = NA_character_),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill = "transparent",
+                                       colour = NA_character_),
+        legend.background = element_rect(fill = "transparent"),
+        legend.box.background = element_rect(fill = "transparent", colour="transparent"),
+        legend.key = element_rect(fill = "transparent")) +
+##### axis settings
+  scale_y_continuous(expand = c(0, 0), breaks=c(0,150,300,450,600,750,900, 1050, 1200, 1350)) +
+  scale_x_date(expand = c(0, 0),
+               breaks=c(as.Date("2019-01-01"), 
+                        as.Date("2020-01-01"), 
+                        as.Date("2021-01-01"), 
+                        as.Date("2022-01-01"), 
+                        as.Date("2023-01-01"), 
+                        as.Date("2024-01-01")),
+               date_labels="%b %Y") +
+##### plot labels
+  labs(x="Week end date",
+       y="Vaccine count",
+       fill="Vaccine provider type",
+       title="b") +
+  scale_fill_manual(breaks=c("Other",
+                            "Pediatrician",
+                            "Commercial pharmacy",
+                             "Community health center",
+                            "Healthcare center"),
+                    values=c("Other"="#C3C3C3",
+                             "Pediatrician"="#A8FFB2",
+                             "Commercial pharmacy"="#4CE847",
+                             "Community health center"="#149E24",
+                             "Healthcare center"="#0D5816")) +
+  coord_cartesian(clip = "off")
+
+plot(fig1_b)
+```
+
+```{r}
+##### choropleth of outbreak case count by town
+fig1_c <- ggplot(data=subset(cases_town_all, cityResidence != "New Hampshire")) +
+  ##### data and town shape
+  geom_sf(aes(geometry=geometry, fill=outbreakCtGrp6),
+          show.legend=TRUE,
+          color=NA) +
+  ##### theme
+  theme_void() +
+  theme(text = element_text(family = "sans"),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12),
+        legend.key.size = unit(0.2, "cm")) +
+  ##### removing odd lines around legend color boxes
+  guides(fill=guide_legend(override.aes=list(linetype=c(0,0,0,0,0,0)))) +
+  ##### plot color choices
+  scale_fill_manual(breaks=c("0",
+                             "1-5",
+                             "6-10",
+                             "11-30",
+                             "31-60",
+                             ">60"),
+                    values=c("0"="lightgray",
+                             "1-5"="#f0ff00",
+                             "6-10"="#ffcd32",
+                             "11-30"="#ff9700",
+                             "31-60"="#ff5d13",
+                             ">60"="#ff0000"),
+                    name="MA outbreak case count",
+                    drop=FALSE) +
+  ##### plot labels
+  labs(title="c")
+
+plot(fig1_c)
+```
+
+```{r}
+##### choropleth of sequenced case count by town
+fig1_d <- ggplot(data=subset(cases_town_all, cityResidence != "New Hampshire")) +
+  ##### data and town shape
+  geom_sf(aes(geometry=geometry, fill=sequencedCtGrp6),
+          show.legend=TRUE,
+          color=NA) +
+  ##### theme
+  theme_void() +
+  theme(text = element_text(family = "sans"),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12),
+        legend.key.size = unit(0.2, "cm")) +
+  ##### removing odd lines around legend color boxes
+  guides(fill=guide_legend(override.aes=list(linetype=c(0,0,0,0,0,0)))) +
+  ##### plot color choices
+  scale_fill_manual(breaks=c("0",
+                             "1-5",
+                             "6-10",
+                             "11-30",
+                             "31-60",
+                             ">60"),
+                    values=c("0"="lightgray",
+                             "1-5"="#f0ff00",
+                             "6-10"="#ffcd32",
+                             "11-30"="#ff9700",
+                             "31-60"="#ff5d13",
+                             ">60"="#ff0000"),
+                    name="MA sequenced case count",
+                    drop=FALSE) +
+  ##### plot labels
+  labs(title="d")
+
+plot(fig1_d)
+```
+
+```{r}
+##### now creating the plot panel of the epi curve (sequenced vs non-sequenced), total cases by town, and total sequenced cases by town.
+fig1 <- ggarrange(fig1_a,
+                  fig1_a2 +
+                    theme(plot.margin = unit(c(0,1.06,0,0.4), "cm"),
+                          axis.title=element_text(size=9)) +
+                    scale_x_date(expand = c(0, 0),
+                                 # I wanted to manually choose the breaks as yearly on January, so with my knowledge doing it manually was the way to go
+                                 breaks=c(as.Date("2019-01-01"), 
+                                          as.Date("2020-01-01"), 
+                                          as.Date("2021-01-01"), 
+                                          as.Date("2022-01-01"), 
+                                          as.Date("2023-01-01"), 
+                                          as.Date("2024-01-01")),
+                                 date_labels="%b %Y"),
+                  fig1_b,
+                  ggarrange(fig1_c +
+                              theme(plot.margin = unit(c(-3,0,-2,0.125), "cm")),
+                            fig1_d +
+                              theme(plot.margin = unit(c(-3,0.125,-2,0), "cm")), 
+                            ncol=2,
+                            align="v"),
+                  nrow=4,
+                  heights=c(1.2,0.6,1,1))
+
+plot(fig1)
+```
+
+```{r}
+##### pdf of Figure 1
+#fig1 %>%
+ggsave(paste(OUTPUT_DIR, "/Fig1.pdf", sep="/"), fig1, height=7, width=8, units="in", dpi=300)
+
+##### png of Figure 1
+#fig1 %>%
+ggsave(paste(OUTPUT_DIR, "Fig1.png", sep="/"), fig1, height=7, width=7, units="in", dpi=300, bg="transparent")
+
+```

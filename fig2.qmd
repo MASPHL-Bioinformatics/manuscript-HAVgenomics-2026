@@ -1,0 +1,460 @@
+---
+title: "Figure 2"
+execute:
+  include: false
+---
+
+**Figure 2. Clustering of 2018-2020 HAV subgenotype IIIA sequences with epidemiological and geographic variables.**
+
+**A)** Unrooted phylogeny of all whole genome human host HAV sequences (see **Methods**), including both publicly available sequences and those sequenced in this study. Publicly available sequences with collection dates from 2017 or later are indicated.
+
+**B)** MA towns from which subgenotype IIIA cluster sequences generated in this study were derived, colored by county of residence (towns without sequence data are shown in white). Shapefiles used to create the map were downloaded from the Bureau of Geographic Information (MassGIS), Commonwealth of Massachusetts, Executive Office of Technology and Security Services database on 15 April 2024 and altered in ArcGIS to include the NH border (shown in gray) along the MA state outline. 
+
+**C**) Phylogeny of all sequences belonging to the 2018-2020 subgenotype IIIA cluster. MA counties are colored as in panel B, and all sequences from NH are shown in dark gray.
+
+```{r}
+rm(list = ls())
+pkglist = c("ape", "ggplot2", "ggtree","stringr", "cowplot",
+                "tinytex", "kableExtra", "ggpattern", "ggpubr", "splitstackshape", "igraph", "dplyr",
+                "grid", "ggtreeExtra")
+
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+RENAMED_UNROOTED_WGS_TREE=Sys.getenv("RENAMED_UNROOTED_WGS_TREE")
+COUNTY_SHAPE=Sys.getenv("COUNTY_SHAPE")
+RENAMED_IIIA_WGS_TREE=Sys.getenv("RENAMED_IIIA_WGS_TREE")
+GENBANK_METADATA=Sys.getenv("GENBANK_METADATA")
+
+CLEANING_SCRIPT=Sys.getenv("CLEANING_SCRIPT")
+source(CLEANING_SCRIPT)
+EPI_LINKAGE_SCRIPT=Sys.getenv("EPI_LINKAGE_SCRIPT")
+source(EPI_LINKAGE_SCRIPT)
+
+```
+
+```{r}
+# 2A
+# read in tree
+tree_2A <- read.tree(RENAMED_UNROOTED_WGS_TREE)
+
+# drop HepA/USA/MA/0046/2018
+tree_2A <- drop.tip(tree_2A, "HepA/USA/MA/0046/2018")
+
+# annotate our sequences
+our_sequences_annotated <- data.frame(label = tree_2A$tip.label) %>%
+    mutate(ours = ifelse(grepl("^HepA", label), "yes", NA))
+
+our_sequence_group_annotated <- data.frame(label = tree_2A$tip.label) %>%
+  mutate(ours = case_when(
+    # If ends with 2018, 2019, or 2020 OR starts with "HepA/USA/NH"
+    grepl("(2018|2019|2020)$", label) | grepl("^HepA/USA/NH", label) ~ "2018-2020",
+    # If ends with 2023 or 2024
+    grepl("(2023|2024)$", label) ~ "2023-2024",
+    # Everything else
+    TRUE ~ NA_character_
+  ))
+
+# plot tree
+tree_2A_viz <- ggtree(tree_2A, layout = "unrooted") %<+% our_sequence_group_annotated +
+  geom_tippoint(aes(color = ours), size = 1, na.rm = TRUE) +
+  scale_color_manual(values = c("2018-2020" = "orange", "2023-2024" = "#339189"), na.translate = FALSE) +
+  theme_tree() +
+  theme(legend.position = "none")
+
+plot(tree_2A_viz)
+```
+
+```{r}
+tree_2A_viz %>%
+  ggsave(filename=paste0(OUTPUT_DIR, "/Fig2A.png"), height=8, width=8, units="in", dpi=300)
+
+tree_2A_viz %>%
+  ggsave(filename=paste0(OUTPUT_DIR, "/Fig2A.pdf"), height=8, width=8, units="in", dpi=300)
+```
+
+```{r}
+###########################################################################
+##### Figure 2B - Sequenced outbreak cases colored by county and town #####
+###########################################################################
+
+# prep is same as fig 1
+#################################
+##### Load and prepare data #####
+#################################
+# we were going to include CT and NH cases initially, but have since to at least hold off on that for now. However, Lydia still needs the start of the NH shape for her plot, so only excluding CT with this subset
+metadata_town_clean <- subset(metadata_town_clean, cityResidence!="Connecticut")
+
+##### Shapefiles
+# town shapes
+town_shape <- read_sf(TOWN_SHAPE)
+# the TOWN variable gives all capitals for all town names, so just changing it so only the first letter of every word is capitalized.
+town_shape$town <- stri_trans_totitle(town_shape$TOWN)
+# county shapes
+county_shape <- read_sf(COUNTY_SHAPE)
+# both datasets have a column called "geometry" which describes the shape of the object in that row (either town or county). So I am changing the name of the "geometry" column in the county_shape dataframe to "countyGeo" so that I can have county and town shape variables in one dataset in later merge steps.
+names(county_shape)[names(county_shape)=="geometry"] <- "countyGeo"
+
+
+##### Processing cases by town
+# Merge in town shape to cases_town_all. I went to do this in the cleaning program, but excel can't handle the export of geometry scf data (kept giving null values), so had to create the desired shape file and then load/merge it in here.
+cases_town_all <- merge(metadata_town_clean,
+                        town_shape,
+                        by.x="cityResidence",
+                        by.y="town",
+                        all.x=TRUE)
+
+# merge in county shape to cases_town_all.
+cases_town_all <- merge(cases_town_all,
+                        county_shape,
+                        by.all="county",
+                        all.x=TRUE)
+
+# we have NH data; currently, that row is identified using the cityResidence variable (cityResidence=NH for those out-of-state-cases). Adding NH as a county if not an MA town
+cases_town_all$county <- ifelse(cases_town_all$cityResidence != "New Hampshire", cases_town_all$county, "New Hampshire")
+
+# # add a county-case density variable for proper coloring of the choropleth that will match with the phylogenetic tree
+cases_town_all$iiiaTownGrp <- paste0(cases_town_all$iiiaCtGrp3, "-", cases_town_all$county)
+
+# we were going to include CT and NH cases initially, but have since to at least hold off on that for now
+cases_town_all <- subset(cases_town_all, cityResidence!="Connecticut")
+# for this specific plot, excluding NH as well
+cases_town_all <- subset(cases_town_all, cityResidence!="New Hampshire")
+
+
+##### setting color for each county and sequenced outbreak case count group.
+townCaseColor1 <- c("0-Barnstable"="white",
+                    "1-5-Barnstable"="#2c2071",
+                    "0-Berkshire"="white",
+                    "0-Bristol"="white",
+                    "1-5-Bristol"="#0485e4",
+                    "0-Essex"="white",
+                    "1-5-Essex"="#b4ff06",
+                    "6-10-Essex"="#b4ff06",
+                    "0-Franklin"="white",
+                    "1-5-Franklin"="#a90000",
+                    "0-Hampden"="white",
+                    "1-5-Hampden"="#ea6800",
+                    "0-Hampshire"="white",
+                    "1-5-Hampshire"="#de2300",
+                    "0-Middlesex"="white",
+                    "1-5-Middlesex"="#93d200",
+                    "6-10-Middlesex"="#93d200",
+                    "0-Norfolk"="white",
+                    "1-5-Norfolk"="#00af9e",
+                    "0-Plymouth"="white",
+                    "1-5-Plymouth"="#254bc8",
+                    "6-10-Plymouth"="#254bc8",
+                    "0-Suffolk"="white",
+                    "1-5-Suffolk"="#2de000",
+                    ">=31-Suffolk"="#2de000",
+                    "0-Worcester"="white",
+                    "1-5-Worcester"="#d1a100",
+                    "21-30-Worcester"="#d1a100",
+                    "0-Dukes"="white",
+                    "0-Nantucket"="white",
+                    "0-New Hampshire"="#808080",
+                    "1-5-NA"=NA)
+
+
+##### we want the county lines to have color, too, so setting the county line colors
+countyColor1 <- c("Barnstable"="#2c2071",
+                  "Berkshire"="#680000",
+                  "Bristol"="#0485e4",
+                  "Essex"="#b4ff06",
+                  "Franklin"="#a90000",
+                  "Hampden"="#ea6800",
+                  "Hampshire"="#de2300",
+                  "Middlesex"="#93d200",
+                  "Norfolk"="#00af9e",
+                  "Plymouth"="#254bc8",
+                  "Suffolk"="#2de000",
+                  "Worcester"="#d1a100",
+                  "Dukes"="#5A2071",
+                  "Nantucket"="#71204B",
+                  "New Hampshire"="#808080")
+
+
+# extract just NH
+nh_shape <- town_shape %>% filter(town == "New Hampshire") 
+nh_border <- st_boundary(nh_shape)
+bbox <- st_bbox(c(xmin = 114270.6, xmax = 263506.6, ymin = 938500, ymax = 965000), crs = st_crs(nh_border))
+bbox_poly <- st_as_sfc(bbox)
+nh_clipped_outline <- st_intersection(nh_border, bbox_poly)
+
+##### Figure 2B
+fig2_b <- ggplot(data=cases_town_all) +
+  geom_sf(aes(geometry=geometry, fill=iiiaTownGrp), color=NA) +
+  geom_sf(aes(geometry=countyGeo, color=county), fill=NA) +
+  geom_sf(data = nh_clipped_outline, color = "#808080", size = 3) + 
+  scale_fill_manual(values=townCaseColor1) +
+  scale_color_manual(values=countyColor1) +
+  theme_void() +
+  theme(text = element_text(family = "sans"),
+        legend.text=element_text(size=9),
+        legend.title=element_text(size=9),
+        plot.title=element_text(size=12),
+        legend.position="none") +
+  labs(title="b")
+
+plot(fig2_b)
+```
+
+```{r}
+##### pdf of Figure 2B
+fig2_b %>%
+  ggsave(filename=paste0(OUTPUT_DIR, "/Fig2B.pdf"), dpi=300)
+
+##### png of Figure 2B
+fig2_b %>%
+ ggsave(filename=paste0(OUTPUT_DIR, "/Fig2B.png"), dpi=300)
+
+```
+
+```{r}
+# 2C 
+tree_clade <- "IIIA main cluster"
+outgroup_for_rooting <- "AB279732.1"
+text_offset <- 0.00004
+scale_width <- 0.0001
+compress_tree <- TRUE
+compressed_height <- 19
+full_height <- 22
+width <- 8
+suffix <- "_main_cluster"
+
+# read in tree
+tree <- read.tree(RENAMED_IIIA_WGS_TREE)
+tree <- drop.tip(tree, "HepA/USA/MA/0046/2018")
+
+metadata_full <- read.csv(METADATA_FILE, header=TRUE, stringsAsFactors=FALSE)
+# what tree tip labels don't appear in study identifier column?
+missing_ids <- setdiff(tree$tip.label, metadata_full$MASPHL_Sequencing_ID)
+print(missing_ids) #[1] "ON524418.1" "MN062167.1" "AB279732.1"
+new_rows <- data.frame(MASPHL_Sequencing_ID = c("ON524418.1", "MN062167.1", "AB279732.1"))
+metadata_full <- bind_rows(metadata_full, new_rows)
+
+# if MASPHL_Sequencing_ID starts with "HepA/USA/NH/":
+length(metadata_full[grepl("^HepA/USA/NH/", metadata_full$MASPHL_Sequencing_ID), ]) #78
+# set county of residence to "NH"
+metadata_full$county_of_residence[grepl("^HepA/USA/NH/", metadata_full$MASPHL_Sequencing_ID)] <- "NH"
+
+metadata_full$county_of_residence[metadata_full$MASPHL_Sequencing_ID == "HepA/USA/MA/0212/2019"] <- "NH"
+#metadata_full$county_of_residence[metadata_full$MASPHL_Sequencing_ID == "HepA/USA/MA/0307/2019"] <- "CT"
+unique(metadata_full$county_of_residence)
+
+#metadata_full$sample_group <- "2018-2020"
+#metadata_full$sample_group[grepl("^24MA", metadata_full$study_identifier)] <- "2023-2024"
+metadata_full <- metadata_full %>% dplyr::rename(label = MASPHL_Sequencing_ID)
+metadata_full$illicit_ever[metadata_full$illicit_ever == ""] <- NA
+metadata_full$homelessness[metadata_full$homelessness == ""] <- NA
+metadata_full$county_of_residence[metadata_full$county_of_residence == ""] <- NA
+
+metadata <- metadata_full %>%
+  select(
+    label, county_of_residence, outbreak, sequenced, homelessness, illicit_ever, gender
+  ) %>%
+  filter(label %in% tree$tip.label) %>%
+  arrange(match(label, tree$tip.label))
+nrow(metadata) #266
+
+unique(metadata$county_of_residence)
+
+# prepares metadata variables
+metadata$illicit_ever[is.na(metadata$illicit_ever)] <- ""
+metadata$illicit_ever <- paste("illicit_ever: ", metadata$illicit_ever, sep="")
+metadata$homelessness[is.na(metadata$homelessness)] <- ""
+metadata$homelessness <- paste("homelessness: ", metadata$homelessness, sep="")
+
+# reads in metadata for GenBank sequences
+genbank_metadata <- read.table(GENBANK_METADATA, sep="\t", header=TRUE, stringsAsFactors=FALSE)
+genbank_metadata <- genbank_metadata %>% dplyr::rename(label = strain)
+# swap out display name for NY and CA tips
+
+genbank_metadata <- genbank_metadata %>%
+  mutate(display_name = ifelse(display_name == "ON524418.1 (USA: New York, 2019)", "NY 2019", display_name))
+genbank_metadata <- genbank_metadata %>%
+  mutate(display_name = ifelse(display_name == "MN062167.1 (USA: California, 2018)", "CA 2018", display_name))
+
+genbank_metadata$display_name
+
+# reroot tree using outgroup
+# "resolve.root = TRUE" forces the new root node to be reslved as a bifurcating node (i.e., a binary split), rather than a polytomy (multiple branches stemming from one node) - it adds a zero-length branch directly below the Most Recent Common Ancestor (MRCA) of the ingroup
+tree <- root(tree, outgroup = outgroup_for_rooting, resolve.root = TRUE)
+is.rooted(tree)
+
+# # in IIIA tree, node 312 is the dividing point between the whole tree and the sub-tree with most sequences
+# get_descendants <- function(tree, node)
+# {
+#   children <- tree$edge[tree$edge[, 1] == node, 2]
+#   all_descendants <- children
+#   for (child in children)
+#   {
+#     all_descendants <- c(all_descendants, get_descendants(tree, child))
+#   }
+#   return(all_descendants)
+# }
+
+# descendants <- get_descendants(tree, 312)
+# nodes_to_keep <- unique(c(312, descendants))
+# tip_labels <- tree$tip.label[nodes_to_keep[nodes_to_keep <= length(tree$tip.label)]]
+
+# setdiff(tree$tip.label, tip_labels)
+# #  [1] "HepA/USA/MA/0355/2023" "HepA/USA/MA/0366/2024" "FJ360735.1"            "FJ227135.1"           
+# #  [5] "DQ991030.1"            "EU011791.1"            "AB279733.1"            "AB279734.1"           
+# #  [9] "OR606573.1"            "AB973400.1"            "OR606575.1"            "JQ655151.1"           
+# # [13] "AJ299464.3"            "AB279732.1"            "AY644337.1"            "FJ360733.1"           
+# # [17] "DQ991029.1"            "FJ360730.1"            "FJ360731.1"            "FJ360732.1"           
+# # [21] "FJ360734.1"            "HepA/USA/MA/0376/2024" "OR606574.1"            "OR261026.1"           
+# # [25] "OR261027.1" 
+tree <- drop.tip(tree, c(outgroup_for_rooting))
+length(tree$tip.label)
+
+tree_2C_viz <- ggtree(tree, layout = "circular", show.scale = TRUE)
+
+tree_2C_viz <- tree_2C_viz %<+% metadata %<+% genbank_metadata %<+% linkage_groups +
+  # geom_text2(aes(label = node), hjust = -0.3, size = 1.5, color = "black", offset = text_offset) + # node labels
+  scale_color_manual(values = c(
+    "NH"                = "#808080",
+    "CT"                = "#000000",
+    "Berkshire County"  = "#680000",
+    "Franklin County"   = "#a90000",
+    "Hampshire County"  = "#de2300",
+    "Hampden County"    = "#ea6800",
+    "Worcester County"  = "#d1a100",
+    "Middlesex County"  = "#93d200",
+    "Essex County"      = "#b4ff06",
+    "Suffolk County"    = "#2de000",
+    "Norfolk County"    = "#00af9e",
+    "Bristol County"    = "#0485e4",
+    "Plymouth County"   = "#254bc8",
+    "Barnstable County" = "#2c2071",
+    "Unknown"           = "#dddddd"
+  ), na.value           = "#dddddd") +
+  scale_fill_manual(values = c(
+    "NH"                = "#808080",
+    "CT"                = "#000000",
+    "Berkshire County"  = "#680000",
+    "Franklin County"   = "#a90000",
+    "Hampshire County"  = "#de2300",
+    "Hampden County"    = "#ea6800",
+    "Worcester County"  = "#d1a100",
+    "Middlesex County"  = "#93d200",
+    "Essex County"      = "#b4ff06",
+    "Suffolk County"    = "#2de000",
+    "Norfolk County"    = "#00af9e",
+    "Bristol County"    = "#0485e4",
+    "Plymouth County"   = "#254bc8",
+    "Barnstable County" = "#2c2071",
+    "Unknown"           = "#dddddd",
+    "No"                = "white"
+  ), na.value           = "#dddddd", guide = "none") +
+  scale_shape_manual(values = c("2018-2020" = 21, "2023-2024" = 22)) +
+  labs(color = "County") +
+  ggtitle(tree_clade) +
+  theme_tree2() +
+  theme(legend.position = "none",
+        axis.line.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank()) +
+  # geom_treescale(x = 0, y = -2, width = scale_width, fontsize = 2)
+        geom_treescale(x = -0.0001, y = 250, width = scale_width, fontsize = 2, color="black", linesize = 1)
+# ^ y is angular position, x is radial
+
+tree_2C_viz <- tree_2C_viz +
+  geom_tiplab(aes(label = display_name), size = 2, color = "black", offset = text_offset * 8) +
+  # Step 1: Draw ALL points as county colors
+  geom_tippoint(aes(color = county_of_residence, fill = county_of_residence, 
+                    x = x + text_offset * 4), size = 3, na.rm=TRUE) +
+  # Step 2: Draw white circles ONLY where outbreak != "Yes"
+  geom_tippoint(aes(x = x + text_offset * 4), 
+                data = . %>% filter(outbreak != "Yes" | is.na(outbreak)),
+                fill = "white", color = "white", size = 1.5, na.rm=TRUE) +
+  geom_tiplab(aes(label = linkage_group), size = 2, color = "black", offset = text_offset * 8)
+
+# add other metadata variables
+max_x <- max(tree_2C_viz$data$x, na.rm = TRUE)
+
+tree_2C_viz <- tree_2C_viz +
+  geom_fruit(
+    geom = geom_tile,
+    mapping = aes(y = label, x = 1, fill = illicit_ever),
+    width = 0.00015,
+    offset = 0
+  ) +
+  geom_fruit(
+    geom = geom_tile,
+    mapping = aes(y = label, x = 1, fill = homelessness),
+    width = 0.00015,
+    offset = 0
+  ) +
+  scale_fill_manual(values = c(
+    "NH"                = "#808080",
+    "CT"                = "#000000",
+    "Berkshire County"  = "#680000",
+    "Franklin County"   = "#a90000",
+    "Hampshire County"  = "#de2300",
+    "Hampden County"    = "#ea6800",
+    "Worcester County"  = "#d1a100",
+    "Middlesex County"  = "#93d200",
+    "Essex County"      = "#b4ff06",
+    "Suffolk County"    = "#2de000",
+    "Norfolk County"    = "#00af9e",
+    "Bristol County"    = "#0485e4",
+    "Plymouth County"   = "#254bc8",
+    "Barnstable County" = "#2c2071",
+    "Unknown"           = "#dddddd",
+    "No"                = "white",
+    
+    "illicit_ever: Yes" = "#E27CAE",
+    "illicit_ever: No" = "#1C53E0",
+    "illicit_ever: Unknown" = "white",
+    "illicit_ever: " = "white",
+    
+    "homelessness: Yes" = "#FFB000",
+    "homelessness: No" = "#543ACC",
+    "homelessness: Unknown" = "white",
+    "homelessness: " = "white"
+    
+  ), na.value           = NA, guide = "none")
+
+# tree_2C_viz <- tree_2C_viz +
+#   # xlim(-0.0068, NA)
+#   xlim(-0.0048, NA)
+
+tree_2C_viz <- tree_2C_viz +
+  xlim(-0.0048, NA)
+
+
+range(tree_2C_viz$data$x, na.rm = TRUE)
+# [1] 0.000000000 0.001945491
+
+# scalebar_plot <- ggplot() +
+#   annotate("segment", x = 0, xend = scale_width, y = 0.5, yend = 0.5, linewidth = 1, color = "black") +
+#   annotate("text", x = scale_width / 2, y = 0, label = paste0(scale_width, " subs/site"), size = 3, color = "black") +
+#   theme_void() +
+#   xlim(-scale_width * 0.5, scale_width * 1.5) +
+#   ylim(-0.5, 1)
+
+#combined_2C <- plot_grid(tree_2C_viz, scalebar_plot, ncol = 1, rel_heights = c(20, 1))
+
+```
+
+```{r}
+# save tree
+height <- compressed_height
+radius <- 11
+
+##### pdf
+tree_2C_viz %>%
+  ggsave(filename=paste0(OUTPUT_DIR, "/Fig2C.pdf"), height=compressed_height, width=radius, units="in", dpi=300)
+
+##### png
+tree_2C_viz %>%
+  ggsave(filename=paste0(OUTPUT_DIR, "/Fig2C.png"), height=compressed_height, width=radius, units="in", dpi=300)
+
+
+```

@@ -1,0 +1,26 @@
+Session info generated: 2026-04-30 08:45:41
+============================================================
+
+BASE SESSION INFO
+------------------------------------------------------------
+Python version : 3.12.8 | packaged by conda-forge | (main, Dec  5 2024, 14:24:40) [GCC 13.3.0]
+Platform       : linux
+Executable     : ~/miniforge3/bin/python3
+
+============================================================
+PACKAGES DETECTED IN SOURCE FILES
+------------------------------------------------------------
+
+./figS4.qmd
+  baltic
+  matplotlib
+  os
+  pandas
+
+============================================================
+INSTALLED VERSIONS OF DETECTED PACKAGES
+------------------------------------------------------------
+  baltic                         0.3.0
+  matplotlib                     3.10.1
+  os                             (stdlib)
+  pandas                         2.2.3

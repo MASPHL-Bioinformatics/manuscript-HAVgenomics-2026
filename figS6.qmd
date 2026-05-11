@@ -1,0 +1,141 @@
+---
+title: "Figure S6"
+execute:
+  echo: false
+---
+
+**Figure S6. SNP distances between pairs of MA IIIA sequences.** Full SNP distance distributions between pairs of sequences identified as **A)** epidemiological links, **B)** transmission events identified by JUNIPER with ≥50% support, **C)** all pairs of samples from the same MA county of residence with known symptom onset dates within 1-57 days, and **D)** all pairs of samples. Only IIIA MA sequences passing quality control are included. 
+
+```{r}
+rm(list = ls())
+pkglist = c("igraph", "dplyr", "ggplot2",#3A and #3B
+                "ggplot2", "data.table", "tidyr")
+lapply(pkglist, require, character.only = TRUE)
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+RENAMED_ALL_PAIRS_SNP_DIST=Sys.getenv("RENAMED_ALL_PAIRS_SNP_DIST")
+EPI_LINKAGE_SCRIPT=Sys.getenv("EPI_LINKAGE_SCRIPT")
+source(EPI_LINKAGE_SCRIPT)
+```
+
+```{r}
+####################################################
+# subset all-vs-all SNP distances to the three subsets
+all_pairs <- read.table(RENAMED_ALL_PAIRS_SNP_DIST, sep="\t", header=TRUE, stringsAsFactors=TRUE)
+nrow(all_pairs)
+
+# drop anything with HepA/USA/MA/0046/2018 from all_pairs
+all_pairs <- all_pairs[all_pairs$sequence1 != "HepA/USA/MA/0046/2018" & 
+                       all_pairs$sequence2 != "HepA/USA/MA/0046/2018", ]
+
+metadata <- read.csv(METADATA_FILE)
+# also drop HepA/USA/MA/0046/2018 from metadata
+metadata <- metadata[metadata$MASPHL_Sequencing_ID != "HepA/USA/MA/0046/2018", ]
+
+# Get IDs that satisfy all conditions simultaneously (from MA, passed QC, subgenotype IIIA)
+valid_ids <- metadata$MASPHL_Sequencing_ID[
+  metadata$State.of.Residence == "MA" &
+  metadata$Sample_Passed_QC == "Yes" &
+  metadata$Subgenotype == "IIIA"]
+
+length(valid_ids)
+
+# Filter pairs where BOTH samples meet all criteria
+all_pairs <- all_pairs[all_pairs$sequence1 %in% valid_ids & 
+                       all_pairs$sequence2 %in% valid_ids, ]
+nrow(all_pairs)
+
+colnames(all_pairs) <- c("sample1", "sample2", "SNP_distance")
+
+# first, epi links only (31)
+epi_pairs <- combined[combined$type %in% c("epi", "epi and juniper"), ]
+nrow(epi_pairs)
+epi_subset <- all_pairs[mapply(function(s1, s2) {any((epi_pairs$from == s1 & epi_pairs$to == s2) | (epi_pairs$from == s2 & epi_pairs$to == s1))}, all_pairs$sample1, all_pairs$sample2),] # n=31
+
+# second, juniper links only
+juniper_pairs <- combined[combined$type %in% c("juniper", "epi and juniper"), ]
+nrow(juniper_pairs)# n = 78
+juniper_subset <- all_pairs[mapply(function(s1, s2) {any((juniper_pairs$from == s1 & juniper_pairs$to == s2) | (juniper_pairs$from == s2 & juniper_pairs$to == s1))},  all_pairs$sample1, all_pairs$sample2),] # n= 78
+
+#######################################
+# ## third, all pairs from same county where both known symptom onset dates within 0-57 days
+# # (also consider filtering by sequenced and passed QC samples)
+meta_filtered <- metadata %>%
+  filter(State.of.Residence == "MA",
+         Sample_Passed_QC == "Yes",
+         Subgenotype=="IIIA",
+         !is.na(symptom_onset_date))
+
+meta_filtered <- meta_filtered %>%
+  filter(trimws(symptom_onset_date) != "")
+
+nrow(meta_filtered)
+# Get the valid IDs
+valid_ids <- meta_filtered$MASPHL_Sequencing_ID
+
+# Subset snps to pairs where both samples are in valid_ids
+# Make sure dates are Date type, then filter to 0-57 day difference
+dates_within_range <- all_pairs %>%
+  filter(sample1 %in% valid_ids, sample2 %in% valid_ids) %>%
+  left_join(meta_filtered %>% select(MASPHL_Sequencing_ID, onset1 = symptom_onset_date, county1 = county_of_residence),
+            by = c("sample1" = "MASPHL_Sequencing_ID")) %>%
+  left_join(meta_filtered %>% select(MASPHL_Sequencing_ID, onset2 = symptom_onset_date, county2 = county_of_residence),
+            by = c("sample2" = "MASPHL_Sequencing_ID")) %>%
+  mutate(onset1 = as.Date(onset1, format = "%m/%d/%Y"),
+         onset2 = as.Date(onset2, format = "%m/%d/%Y"),
+         date_diff = abs(as.numeric(difftime(onset1, onset2, units = "days")))) %>%
+  filter(!is.na(onset1), !is.na(onset2),
+         date_diff <= 57,
+         county1 == county2)
+
+nrow(dates_within_range) #1349
+nrow(all_pairs) #23220
+
+length(unique(c(dates_within_range$sample1, dates_within_range$sample2)))
+
+```
+
+```{r}
+epi_links_label <- "Epidemiological links"
+juniper_links_label <- "JUNIPER links with ≥50% support"
+dates_within_range_label <- "All pairs from same county with known symptom onset dates within 0-57 days"
+all_pairs_label <- "All pairs"
+
+# combine into one table
+epi_subset <- epi_subset %>% mutate(pair_type = epi_links_label)
+juniper_subset <- juniper_subset %>% mutate(pair_type = juniper_links_label)
+dates_within_range <- dates_within_range %>% mutate(pair_type = dates_within_range_label)
+all_pairs <- all_pairs %>% mutate(pair_type = all_pairs_label)
+
+combined_table <- bind_rows(epi_subset, juniper_subset, dates_within_range, all_pairs)
+combined_table$pair_type <- factor(combined_table$pair_type, levels=c(epi_links_label, juniper_links_label, dates_within_range_label, all_pairs_label))
+
+# plot
+snp_distances_plot <- ggplot(combined_table, aes(x = SNP_distance)) +
+  geom_histogram(binwidth = 1, aes(color = pair_type, fill = pair_type)) +
+  facet_wrap(pair_type ~., scales="free_y", ncol=1, labeller = label_wrap_gen(width = 50)) +
+  # scale_y_log10() +
+  xlab("SNP distance") + ylab("Count") +
+  scale_color_manual(values = setNames(
+    c("black", "black", "black", "black"),
+    c(epi_links_label, juniper_links_label, dates_within_range_label, all_pairs_label))) +
+  scale_fill_manual(values = setNames(
+    c("black", "black", "black", "black"),
+    c(epi_links_label, juniper_links_label, dates_within_range_label, all_pairs_label))) +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.line = element_blank(),
+        panel.grid = element_blank(),
+        strip.background = element_rect(fill = "white", color = "white"),
+        strip.text = element_text(hjust = 0))
+
+
+plot(snp_distances_plot)
+
+width <- 4
+height <- 6
+ggsave(filename=paste0(OUTPUT_DIR, "/FigS6.pdf"), snp_distances_plot, height=height, width=width, units="in", dpi=300)
+ggsave(filename=paste0(OUTPUT_DIR, "/FigS6.png"), snp_distances_plot, height=height, width=width, units="in", dpi=300)
+```

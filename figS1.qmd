@@ -1,0 +1,243 @@
+---
+title: "Figure S1"
+execute:
+  echo: false
+---
+
+**Figure S1. Overlapping risk factors for hepatitis A.** Venn diagram of people who use drugs (PWUD) and people experiencing homelessness (PEH) for **A)** confirmed MA outbreak cases and **B)** all sequenced MA cases of hepatitis A. MA outbreak cases by risk factor are further broken down into **C)** the 2018-2020 outbreak and **D)** the 2023-2024 outbreak. 
+
+```{r}
+rm(list = ls())
+pkglist = c("grid", "ggplot2", "ggtree", "dplyr", "ggpubr", "VennDiagram")
+
+lapply(pkglist, require, character.only = TRUE)
+
+```
+
+```{r}
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+CLEANING_SCRIPT=Sys.getenv("CLEANING_SCRIPT")
+source(CLEANING_SCRIPT)
+
+```
+
+```{r}
+#############################################
+##### Fig S1 - Overlapping risk factors #####
+#############################################
+
+# drop HepA/USA/MA/0046/2018 just in case - should already have been dropped in cleaning script
+metadata <- metadata[metadata$MASPHL_Sequencing_ID != "HepA/USA/MA/0046/2018", ]
+
+# get outbreak counts (homeless only, drug use only, and both drug use and homelessness)
+home_out <- nrow(subset(metadata, outbreak=="Yes" & homelessness=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+drug_out <- nrow(subset(metadata, outbreak=="Yes" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+both_out <- nrow(subset(metadata, outbreak=="Yes" & homelessness=="Yes" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+
+
+# get sequenced counts (homeless only, drug use only, and both drug use and homelessness)
+home_seq <- nrow(subset(metadata, Sample_Passed_QC=="Yes" & homelessness=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+drug_seq <- nrow(subset(metadata, Sample_Passed_QC=="Yes" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+both_seq <- nrow(subset(metadata, Sample_Passed_QC=="Yes" & homelessness=="Yes" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+
+
+# 2018-2020 outbreak
+home_1820 <- nrow(subset(metadata, outbreak=="Yes" & tbl1_outbreak_yr=="2018-2020" & homelessness=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+drug_1820 <- nrow(subset(metadata, outbreak=="Yes" & tbl1_outbreak_yr=="2018-2020" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+both_1820 <- nrow(subset(metadata, outbreak=="Yes" & tbl1_outbreak_yr=="2018-2020" & homelessness=="Yes" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+
+
+# 2023-2024 outbreak
+home_2324 <- nrow(subset(metadata, outbreak=="Yes" & tbl1_outbreak_yr=="2023-2024" & homelessness=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+drug_2324 <- nrow(subset(metadata, outbreak=="Yes" & tbl1_outbreak_yr=="2023-2024" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+both_2324 <- nrow(subset(metadata, outbreak=="Yes" & tbl1_outbreak_yr=="2023-2024" & homelessness=="Yes" & illicit_ever=="Yes" & State.of.Residence=="MA" & droppedDups==0))
+
+
+##### Fig S1A
+# tell R where we want to save the pdf of the plot to
+pdf(paste0(OUTPUT_DIR, "/FigS1A.pdf"))
+
+# create new grid to plot on
+grid.newpage()
+
+# create area for plot to be viewed (more necessary for if adding legends and text outside of the plot)
+pushViewport(viewport(x = unit(0.5, "npc"), y = unit(0.5, "npc"),
+                      width = unit(1, "npc") - unit(2.5, "cm"),
+                      height = unit(1, "npc") - unit(2, "cm")))
+# create the plot
+venn_out <- draw.pairwise.venn(area1 = home_out,
+                               area2 = drug_out,
+                               cross.area = both_out, 
+                               fill=c("#9AD7EF", "#D8B77D"),
+                               lty="blank",
+                               alpha=0.5,
+                               fontface="bold",
+                               cex=1.25,
+                               cat.fontface="bold",
+                               cat.cex=1.5,
+                               cat.pos=c(215, 130),
+                               main="Supplementary Figure Venn Diagram - Outbreak",
+                               scaled=TRUE,
+                               euler.d=T)
+
+# add the text
+grid.text(substitute(paste(bold("a. MA outbreak cases"))),
+          x=0.5, y=1,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+grid.text(substitute(paste("PWUD only")),
+          x=0.172, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+
+grid.text(substitute(paste("PWUD and PEH")),
+          x=0.588, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+
+grid.text(substitute(paste("PEH only")),
+          x=0.915, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+dev.off()
+
+
+##### Fig S1B
+# repeat the above steps except for the sequenced data now
+pdf(paste0(OUTPUT_DIR, "/FigS1B.pdf"))
+grid.newpage()
+pushViewport(viewport(x = unit(0.5, "npc"), y = unit(0.5, "npc"),
+                      width = unit(1, "npc") - unit(2.5, "cm"),
+                      height = unit(1, "npc") - unit(2, "cm")))
+venn_seq <- draw.pairwise.venn(area1 = home_seq,
+                               area2 = drug_seq,
+                               cross.area = both_seq, 
+                               fill=c("#9AD7EF", "#D8B77D"),
+                               lty="blank",
+                               alpha=0.5,
+                               fontface="bold",
+                               cex=1.25,
+                               cat.fontface="bold",
+                               cat.cex=1.5,
+                               cat.pos=c(215, 130),
+                               main="Supplementary Figure Venn Diagram - Sequenced",
+                               scaled=TRUE,
+                               euler.d=T)
+grid.text(substitute(paste(bold("b. MA sequenced cases"))),
+          x=0.5, y=1,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+grid.text(substitute(paste("PWUD only")),
+          x=0.155, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+grid.text(substitute(paste("PWUD and PEH")),
+          x=0.56, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+grid.text(substitute(paste("PEH only")),
+          x=0.895, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+dev.off()
+
+
+##### Fig S1C
+# tell R where we want to save the pdf of the plot to
+pdf(paste0(OUTPUT_DIR, "/FigS1C.pdf"))
+
+# create new grid to plot on
+grid.newpage()
+
+# create area for plot to be viewed (more necessary for if adding legends and text outside of the plot)
+pushViewport(viewport(x = unit(0.5, "npc"), y = unit(0.5, "npc"),
+                      width = unit(1, "npc") - unit(2.5, "cm"),
+                      height = unit(1, "npc") - unit(2, "cm")))
+# create the plot
+venn_1820 <- draw.pairwise.venn(area1 = home_1820,
+                               area2 = drug_1820,
+                               cross.area = both_1820, 
+                               fill=c("#9AD7EF", "#D8B77D"),
+                               lty="blank",
+                               alpha=0.5,
+                               fontface="bold",
+                               cex=1.25,
+                               cat.fontface="bold",
+                               cat.cex=1.5,
+                               cat.pos=c(215, 130),
+                               main="Supplementary Figure Venn Diagram - 2018-2020 Outbreak",
+                               scaled=TRUE,
+                               euler.d=T)
+
+# add the text
+grid.text(substitute(paste(bold("c. MA 2018-2020 outbreak cases"))),
+          x=0.5, y=1,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+grid.text(substitute(paste("PWUD only")),
+          x=0.172, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+
+grid.text(substitute(paste("PWUD and PEH")),
+          x=0.588, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+
+grid.text(substitute(paste("PEH only")),
+          x=0.915, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+dev.off()
+
+
+##### Fig S1D
+# tell R where we want to save the pdf of the plot to
+pdf(paste0(OUTPUT_DIR, "/FigS1D.pdf"))
+
+# create new grid to plot on
+grid.newpage()
+
+# create area for plot to be viewed (more necessary for if adding legends and text outside of the plot)
+pushViewport(viewport(x = unit(0.5, "npc"), y = unit(0.5, "npc"),
+                      width = unit(1, "npc") - unit(2.5, "cm"),
+                      height = unit(1, "npc") - unit(2, "cm")))
+# create the plot
+venn_2324 <- draw.pairwise.venn(area1 = home_2324,
+                               area2 = drug_2324,
+                               cross.area = both_2324, 
+                               fill=c("#9AD7EF", "#D8B77D"),
+                               lty="blank",
+                               alpha=0.5,
+                               fontface="bold",
+                               cex=1.25,
+                               cat.fontface="bold",
+                               cat.cex=1.5,
+                               cat.pos=c(215, 130),
+                               main="Supplementary Figure Venn Diagram - 2023-2024 Outbreak",
+                               scaled=TRUE,
+                               euler.d=T)
+
+# add the text
+grid.text(substitute(paste(bold("d. MA 2023-2024 outbreak cases"))),
+          x=0.5, y=1,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+grid.text(substitute(paste("PWUD only")),
+          x=0.118, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+
+grid.text(substitute(paste("PWUD and PEH")),
+          x=0.52, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+
+grid.text(substitute(paste("PEH only")),
+          x=0.9, y=0.465,
+          just="centre",
+          gp = gpar(fontsize = 10, col = "black"), draw=T)
+dev.off()
+
+
+```

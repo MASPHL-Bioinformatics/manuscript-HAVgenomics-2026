@@ -1,0 +1,411 @@
+---
+title: "Delta statistic"
+format: html
+---
+
+```{r}
+# HAV Clade IIIA variable clustering test
+# Delta statistic/permutation test for IIIA sequences passing QC
+# Also includes sanity check, missing data investigation
+# Author: Mary Godec
+# Date: July 2025
+
+niter=50000
+nburn=500
+nperm=100
+alpha=0.1
+beta=0.05
+
+#########################################################
+# install required packages with Bioconductor
+pkglist = c("dplyr", "ape", "phangorn", "phytools","finalfit", "ggtree")
+lapply(pkglist, require, character.only = TRUE)
+
+OUTPUT_DIR=Sys.getenv("OUTPUT_DIR")
+METADATA_FILE=Sys.getenv("METADATA_FILE")
+RENAMED_DELTA_WGS_TREE=Sys.getenv("RENAMED_DELTA_WGS_TREE")
+DELTA_CODE=Sys.getenv("DELTA_CODE")
+
+# https://github.com/mrborges23/delta_statistic
+source(DELTA_CODE)
+```
+
+```{r}
+
+meta <- read.csv(METADATA_FILE, header=TRUE)
+unique(meta$homelessness)
+unique(meta$illicit_ever)
+tree <- ape::read.tree(RENAMED_DELTA_WGS_TREE)
+
+## for other trees - drop outgroup, contextual IIIA, and HepA/USA/MA/0046/2018 (if in tree)
+# tree <- drop.tip(tree, c("AB279732.1", "MN062167.1","ON524418.1","HepA/USA/MA/0046/2018"))
+
+# # # option to recode homelessness and illicit_ever, similar to downstream JUNIPER analysis
+# ## Encode ALL values so we don't have to drop tips - also lump empty/nan values into "No/Unknown"
+md <- meta %>%
+  mutate(
+    homelessness = ifelse(is.na(homelessness) | homelessness %in% c("No", "Unknown", ""), "No/Unknown", homelessness),
+    illicit_ever = ifelse(is.na(illicit_ever) | illicit_ever %in% c("No", "Unknown", ""), "No/Unknown", illicit_ever))
+
+# filter metadata to only tips in tree 
+tipnames <- tree$tip.label
+# reorder to match order of tipnames
+subs <- md[match(tipnames, md$MASPHL_Sequencing_ID ),]
+nrow(subs)
+```
+
+```{r}
+# subset/clean trees
+print(is.rooted(tree))
+# force polytomies to bifurcations
+uditree <- multi2di(tree)
+print(is.binary(uditree))
+
+# We now have 0-length branches resulting from forcing bifurcations
+# but for Delta, need tree to be metric (non-zero branch/edge lengths) 
+print(summary(uditree$edge.length))
+print((0.000000001 / mean(uditree$edge.length)) * 100) # What percentage is 0.000000001 of the mean?
+# v small, likely won't affect branch length dependent calculations 
+
+# convert 0 edge lengths to a tiny positive value that satisfies the branch_lengths > 0 requirement without influencing your δ results in any meaningful way
+uditree$edge.length <- uditree$edge.length + 0.000000001
+
+print(is.rooted(uditree))
+
+# make sure all node labels (bootstrap values) are empty strings instead of missing - can also assign arbitrary bootstrap value if desired since this implementation doesn't consider bootstrap
+# Especially important for ape - IQtree leaves the first label (for the root node) empty (seen as the leading blank in , NA, NA, NA...) - can cause off-by-one issues in how ape reads and stores them
+uditree$node.label[is.na(uditree$node.label) | uditree$node.label == "" | uditree$node.label == NA ] <- ""
+
+```
+
+```{r}
+# # drop all tips in tree that don't have yes or no in trait
+hsubs <- subset(subs, subs$homelessness %in% c("Yes","No/Unknown"))
+isubs <- subset(subs, subs$illicit_ever %in% c("Yes","No/Unknown"))
+
+
+htrait <- hsubs$homelessness
+itrait <- isubs$illicit_ever
+
+h_factor <- as.numeric(as.character(factor(htrait, levels = c("No/Unknown", "Yes"), labels = c(1, 2))))
+i_factor <- as.numeric(as.character(factor(itrait, levels = c("No/Unknown", "Yes"), labels = c(1, 2))))
+
+
+# subset trees - drop all tips not in hsubs or isubs
+htree <- drop.tip(uditree, tipnames[!tipnames %in% hsubs$MASPHL_Sequencing_ID])
+itree <- drop.tip(uditree, tipnames[!tipnames %in% isubs$MASPHL_Sequencing_ID])
+
+print(table(htrait))
+print(table(itrait))
+```
+
+
+```{r}
+#################
+# l0: rate parameter of the exponential prior distribution
+# se: standard deviation of the proposal distribution 
+# sim: number of iterations
+# thin: keeping only 10th iteration
+# burn: 100 iterates are burned-in
+
+#a:  alpha parameter (beta likelihood)
+#b:  beta parameter (beta likelihood)
+#x:  node entropies
+#SYMdeltaA <- delta(calcfactor,calctree,0.1,0.0589,10000,10,100)
+
+delta_plot_p <- function(calcfactor, calctree, titlestring) {
+  SYMdeltaA <- delta(calcfactor, calctree, alpha, beta, niter, 10, nburn)
+  print("deltaA")
+  print(SYMdeltaA)
+  random_delta <- rep(NA, nperm)
+  for (i in 1:nperm) {
+    rtrait <- sample(calcfactor)
+    random_delta[i] <- delta(rtrait, calctree, alpha, beta, niter, 10, nburn)
+  }
+  p_value <- sum(random_delta > SYMdeltaA) / length(random_delta)
+  smooth_p_value <- (sum(random_delta > SYMdeltaA) + 1) / (length(random_delta) + 1)
+
+  # capture boxplot
+  dev.new()
+  boxplot(random_delta, main = titlestring)
+  abline(h = SYMdeltaA, col = "red")
+  boxplot_recorded <- recordPlot()
+  dev.off()
+
+  # capture prior plot
+  dev.new()
+  x <- seq(0, 10, length.out = 1000)
+  plot(x, dgamma(x, shape = alpha, rate = beta), type = "l", main = "Prior distribution on delta")
+  abline(v = SYMdeltaA, col = "red")
+  prior_recorded <- recordPlot()
+  dev.off()
+
+  print("P-value")
+  print(p_value)
+  print("Smoothed p-value")
+  print(smooth_p_value)
+
+  # Return results
+  list(deltaA = SYMdeltaA, p_value = p_value, smooth_p_value = smooth_p_value,  boxplot = boxplot_recorded, prior_plot = prior_recorded)
+}
+
+```
+
+
+```{r}
+set.seed(22)
+h_results <- delta_plot_p(h_factor, htree, "Homelessness delta distribution")
+replayPlot(h_results$boxplot)
+```
+
+```{r}
+replayPlot(h_results$prior_plot)
+```
+
+```{r}
+set.seed(22)
+i_results <- delta_plot_p(i_factor, itree, "Illicit_ever delta distribution")
+replayPlot(i_results$boxplot)
+```
+
+```{r}
+replayPlot(i_results$prior_plot)
+```
+
+```{r}
+##### conclusions:
+#    for both variables, the deltaA estimate falls towards the tails of the (0.1, 0.05) prior distribution but not in the extreme tail. Much closer to  of (1, 1) distribution.
+#    many samples dropped from both sets of test samples due to invalid trait value - started with 266; ended with 194 for homelessness, 183 for illicit_ever
+#    distribution/proportions of trait values in both test sets were balanced and not skewed/biased
+#    Both yielded significant results. That significance, as well as the observed deltaA value, remained stable and robust to the following tests:
+         # different tree inputs with slightly altered sample composition - addition of Genbank relatives (ex tried Matt's original ML input for time tree, my own ML input for time tree)
+         # Adjusting parameters in response to flat likelihood surface warning - gave chain longer to explore with higher iterations, permuations, and kept more effective samples with higher scaled burnin
+         # encoding "No" and "Unknown" as "No/Unknown" like in JUNIPER - larger sample number, dropping only empty/nan
+         # changing prior distribution specs: I used (0.1, 0.05) but also got significant results with (1, 1) and (2, 2)
+#    the illicit_ever vector/subset sometimes (not always) generated warnings about flat likelihood surface for transition rate matrix, which means ape's ace() struggled to find a well-defined ML estimate 
+         # The data didn't contain enough info to estimate certain rates confidently. This can result from many factors. 
+         # the illicit_ever set is a bit more skewed (65/35) than the homelessness set. Maybe there aren't enough transitions away from dominant state ("Yes") to estimate the rate
+         # tree itself could be unbalanced, pectinate, or just oddly clustered so that it doesn't have much internal node information. 
+         # Not pectinate per Sackin. Visualize to see clustering - I do think that illicit_ever has some odd clumping, with relatively few "No" values
+
+# # are our trees pectinate?
+# # Check how many internal nodes have exactly one tip child - a fully pectinate tree will have Ntip-1 such nodes
+# # Note: some degree of pectination is normal with large datasets
+# # Sackin index - sum of all tip depths
+
+# ## only one tree for encoded data
+# node_depths <- node.depth(htree, method = 1)
+# sackin <- sum(node_depths[1:Ntip(htree)])
+# print(sackin) # [1] 194
+# n <- Ntip(htree) # Normalize
+# sackin_normalized <- sackin / (n * (n-1) / 2)
+# print(" sackin")
+# print(sackin_normalized)  # closer to 1 = more pectinate
+
+# # ## illicit ever
+# # node_depths <- node.depth(itree, method = 1)
+# # sackin <- sum(node_depths[1:Ntip(itree)])
+# # print(sackin) # [1] 183
+# # n <- Ntip(itree) # Normalize
+# # sackin_normalized <- sackin / (n * (n-1) / 2)
+# # print("Illicit ever sackin")
+# # print(sackin_normalized)  # closer to 1 = more pectinate
+
+
+# # visualize to see distribution
+# # Create color mapping 
+# tip_colors <- hsubs$homelessness[match(htree$tip.label, hsubs$MASPHL_Sequencing_ID)]
+# color_map <- ifelse(tip_colors == "Yes", "#E8A838",
+#              ifelse(tip_colors == "No/Unknown", "#7B7FC4", NA))
+# hsubs <- hsubs %>%
+#   mutate(label = MASPHL_Sequencing_ID, .before = 1)
+# hplot <- ggtree(htree) %<+% hsubs +
+#   geom_tippoint(aes(color = homelessness), size = 3, shape = 16) +
+#   scale_color_manual(values = c("Yes" = "#E8A838", "No/Unknown" = "#7B7FC4"),
+#                      na.value = "grey80",
+#                      breaks = c("Yes", "No/Unknown")) +
+#   theme(legend.position = "right")
+
+# plot(hplot)
+```
+
+```{r}
+# # itree
+# tip_colors <- isubs$illicit_ever[match(itree$tip.label, isubs$MASPHL_Sequencing_ID)]
+# color_map <- ifelse(tip_colors == "Yes", "#E8A0B4",
+#              ifelse(tip_colors == "No/Unknown", "#7B9EC4", NA))
+# isubs <- isubs %>%
+#   mutate(label = MASPHL_Sequencing_ID, .before = 1)
+# iplot <- ggtree(itree) %<+% isubs +
+#   geom_tippoint(aes(color = illicit_ever), size = 3, shape = 16) +
+#   scale_color_manual(values = c("Yes" = "#E8A0B4", "No/Unknown" = "#7B9EC4"),
+#                      na.value = "grey80",
+#                      breaks = c("Yes", "No/Unknown")) +
+#   theme(legend.position = "right")
+
+# plot(iplot)
+```
+
+```{r}
+##########################################
+# Write summary
+cat("=== TREE SUMMARY ===", "\n")
+cat("Original tree tip count:", length(uditree$tip.label), "\n")
+cat("Homelessness subset tree tip count:", length(htree$tip.label), "\n")
+cat("Illicit ever subset tree tip count:", length(itree$tip.label), "\n")
+
+cat("\n=== TRAIT VALUES ALLOWED ===", "\n")
+cat("htrait unique values:", paste(unique(htrait), collapse = ", "), "\n")
+cat("itrait unique values:", paste(unique(itrait), collapse = ", "), "\n")
+
+cat("\n=== FACTOR BALANCE (table()) ===", "\n")
+cat("h_factor:", "\n")
+print(table(h_factor))
+cat("i_factor:", "\n")
+print(table(i_factor))
+
+```
+
+```{r}
+cat("\n=== PARAMETERS ===")
+cat("niter:", niter, "\n")
+cat("nburn:", nburn, "\n")
+cat("nperm:", nperm, "\n")
+cat("alpha:", alpha, "\n")
+cat("beta:", beta, "\n")
+
+```
+
+```{r}
+cat("\n=== HOMELESSNESS DELTA RESULTS ===", "\n")
+cat("deltaA:", h_results$deltaA, "\n")
+cat("p-value:", h_results$p_value, "\n")
+cat("smoothed p-value:", h_results$smooth_p_value, "\n")
+
+```
+
+```{r}
+
+cat("\n=== ILLICIT EVER DELTA RESULTS ===", "\n")
+cat("deltaA:", i_results$deltaA, "\n")
+cat("p-value:", i_results$p_value, "\n")
+cat("smoothed p-value:", i_results$smooth_p_value, "\n")
+
+```
+
+## NOTE: why did I initially get some 0 p-values with a smaller/more stringently filtered sample set?
+Potentially have poor or noisy phylogenetic signal to begin with — note that deltaA ~0.56 is moderate
+p value resolution is 0.01 so p=0 means p<0.01 - that is, none of the 100 random permutations exceeded the observed deltaA
+suggests non-random clustering - need to test parameters though to see if deltaA stays stable
+One option: change 100 --> 1000 permutations
+     Also change iterations from 10000 to 50000 - flat likelihood surface means that the chain needs longer to explore properly; 10,000 iterations, keeping every 10th, gives you only 1,000 effective samples before burn-in, not good for a flat-gradient case
+     scale burn-in proportionally to iterations - 500 discarded iterates fits better
+
+## NOTE: If you get warnings like:
+ Warning messages:
+  1: In .getSEs(out.nlm) :
+   The likelihood gradient seems flat in at least one dimension (gradient null):
+  cannot compute the standard-errors of the transition rates.
+
+These appear if the likelihood surface for the transition rate matrix is flat or nearly flat in at least one dimension, i.e., ape::ace() struggled to find a 
+well-defined maximum likelihood estimate for some transition rates, which happens when the data don't contain enough information to estimate certain rates confidently.
+Some potential reasons:
+If one state is rare or clustered in a way that gives very few observed transitions between states, there's little information to estimate the rate for that transition. The optimizer finds a ridge rather than a clean peak.
+A trait with many categories is more likely to have some rate parameters that are poorly informed by the data - more states = more rates to estimate
+If your trait has heavily skewed or imbalanced states, ex 90% of tips are in one state, then transitions away from the dominant state are rare and their rates become hard to estimate.
+If your tree is unbalanced or pectinate tree then it has less internal node information for some clades, which can make certain transitions unobservable.
+
+As the README says, the standard errors of those rate parameters aren't actually used by δ, as it only uses the resulting node probability vectors. 
+So a trait that triggers the warning isn't necessarily giving you a worse δ estimate, it just means the underlying rate model was harder to fit for that particular trait/tree combination.
+
+```{r}
+############################################################################
+# # look at missingness for UNENCODED data - does missingness in one variable depend on any other covariates? investigate whether data is missing at random
+# # note: this treats "Unknown" values the same as NA or empty string
+# all = c("homelessness", "illicit_ever")
+# explanatory = all[1]
+# dependent = all[2]
+
+# uesubs <- meta[match(tipnames, meta$MASPHL_Sequencing_ID ),]
+# mdcopy=as.data.frame(uesubs[,c("MASPHL_Sequencing_ID","homelessness", "illicit_ever", "gender","county_of_residence")])
+# mdcopy$homelessness <- gsub("Unknown", "", mdcopy$homelessness)
+# mdcopy$illicit_ever <- gsub("Unknown", "", mdcopy$illicit_ever)
+# mdcopy$gender <- gsub("Unknown", "", mdcopy$gender)
+# mdcopy$county_of_residence <- gsub("Unknown", "", mdcopy$county_of_residence)
+
+# mdcopy <- mdcopy %>%
+#    mutate(across(everything(), ~ na_if(., "")))
+
+# #https://finalfit.org/articles/missing.html
+# mdcopy %>% 
+#   summary_factorlist("homelessness",c("illicit_ever"), na_include=TRUE, p=TRUE)
+# # Note: dependent includes missing data. These are dropped.
+# #         label levels        No       Yes      p
+# #  illicit_ever     No 52 (52.0)  9 (12.3) <0.001
+# #                  Yes 48 (48.0) 64 (87.7)  
+# # # position = stack is for counts; position = fill is for proportions; stack - counts by default
+# # mdcopy %>%
+# #   missing_pairs(dependent, explanatory, use_labels=TRUE, showXAxisPlotLabels=TRUE,showYAxisPlotLabels=TRUE)
+
+# #######################################################################################
+# # ## More in-depth examination of original four variables of interest
+# mdcopy %>% 
+#   summary_factorlist("gender", c("homelessness","illicit_ever"), na_include=TRUE, p=TRUE)
+# # Note: dependent includes missing data. These are dropped.
+# #         label levels        No       Yes      p
+# #  illicit_ever     No 52 (52.0)  9 (12.3) <0.001
+# #                  Yes 48 (48.0) 64 (87.7)     
+
+# mdcopy %>% 
+#   summary_factorlist("illicit_ever", c("homelessness","gender"), na_include=TRUE, p=TRUE)
+# # Note: dependent includes missing data. These are dropped.
+# #         label levels        No       Yes      p
+# #  homelessness     No 52 (85.2) 48 (42.9) <0.001
+# #                  Yes  9 (14.8) 64 (57.1)       
+# #        gender Female 16 (25.4) 48 (40.0)  0.071
+# #                 Male 47 (74.6) 72 (60.0)    
+
+  
+# all = c("homelessness", "illicit_ever", "gender", "county_of_residence")
+# explanatory = all[2:4]
+# dependent = all[1]
+# # proportions
+# mdcopy %>%
+#   missing_pairs(dependent, explanatory, use_labels=TRUE, position = "fill", showXAxisPlotLabels=TRUE,showYAxisPlotLabels=TRUE)
+
+# #ff_plot() will automatically determine the dependent variable type (binary, survival object, or continuous), and produce the appropriate output (odds ratio, hazard ratio, or coefficient plot).
+# mdcopy %>%
+#   ff_glimpse(dependent, explanatory)
+# # $Continuous
+# # data frame with 0 columns and 262 rows
+
+# # $Categorical
+# #                                   label var_type   n missing_n missing_percent levels_n levels levels_count levels_percent
+# # homelessness               homelessness    <chr> 194        68            26.0        2      -            -              -
+# # illicit_ever               illicit_ever    <chr> 183        79            30.2        2      -            -              -
+# # gender                           gender    <chr> 213        49            18.7        2      -            -              -
+# # county_of_residence county_of_residence    <chr> 212        50            19.1       11      -            -              -
+
+# mdcopy %>%
+#   missing_plot(dependent,explanatory)
+
+# # #wraps mice::md.pattern using finalfit grammar.
+# # # https://amices.org/mice/reference/md.pattern.html
+# # # each row corresponds to a missing data pattern: 1=observed, 0=missing.
+# # # The output tells us that 173 samples are complete, 21 samples miss only the illicit_ever measurement, 10 miss only homelessness, etc
+# # # some are missing all four of them
+
+# # # 49 rows are missing all four of them (complete missingness)
+# mdcopy %>% 
+#    missing_pattern(dependent, explanatory)
+# #     gender county_of_residence homelessness illicit_ever    
+# # 173      1                   1            1            1   0
+# # 21       1                   1            1            0   1
+# # 10       1                   1            0            1   1
+# # 8        1                   1            0            0   2
+# # 1        1                   0            0            0   3
+# # 49       0                   0            0            0   4
+# #         49                  50           68           79 246
+# #####################################
+
+```
