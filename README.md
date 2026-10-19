@@ -53,8 +53,9 @@ project:
 Since each figure is a self-contained qmd file, you can also use a qmd file like a notebook and hardcode in your input paths.
 
 ## Notes
+HAV sequence data generated as part of this study have been deposited in NCBI GenBank under BioProject accession PRJNA1442061 (BioSample accessions: SAMN56709630-SAMN56709934). 
 
-Input files are provided in the manuscript to the extent allowed by the IRB. Please contact the authors with any questions.
+Input data files are provided to the extent allowed by the IRB. Please contact the authors with any questions.
 
 Delta statistic information: Borges et al 2018. Measuring phylogenetic signal between categorical traits and phylogenies. [DOI LINK](https://doi.org/10.1093/bioinformatics/bty800). `code.R` is a direct copy from [mrborges23/delta_statistic](https://github.com/mrborges23/delta_statistic) and included here for convenience only.
 

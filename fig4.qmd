@@ -71,24 +71,36 @@ process_tree_with_outgroup <- function(tree_file,label,outgroup,OUTPUT_DIR,linka
     tree_data <- merge(tree_data, linkages,by.x = "label",by.y = "strain",all.x = TRUE)
 
     if (label == "TR") {
-        text_offset <- 0.00000003
-        scale_width <- 0.0000001
         plot_title <- "VP1-2B"
     } else if (label == "WGS") {
-        text_offset <- 0.00001
-        scale_width <- 0.0001
         plot_title <- "WGS"
     } else {
-        text_offset <- 0.00001
-        scale_width <- 0.0001
         plot_title <- label
     }
     
+    tree_base <- ggtree(tree)
+
+    base_font_size  <- 4      # reference font size in mm
+    base_point_size <- 1.5    # reference point size
+    point_size            <- base_point_size * 2       # 2x current tip circles
+    tip_label_font_size   <- base_font_size * 0.775    # ~75-80% of base
+    bootstrap_font_size   <- base_font_size * 0.5      # half size
+    bootstrap_label_pad   <- unit(0.15, "lines")       # smaller box padding to match smaller text
+
+    max_x <- max(tree_base$data$x, na.rm = TRUE)
+    text_offset <- max_x * 0.02      # tip label offset, as % of tree depth
+    label_offset <- max_x * 0.02     # bootstrap label offset from node
+    scale_width <- max_x * 0.2
+    scale_bar_x <- max_x * 0.15
+
+    candidates <- c(0.0001, 0.0000001)
+    scale_width <- candidates[which.min(abs(log10(scale_width) - log10(candidates)))]
+
     # plot tree
-    tree_with_linkages <- ggtree(tree) %<+% tree_data +
-        geom_tippoint(aes(color = linkage_group), size = 3) +
+    tree_with_linkages <- tree_base %<+% tree_data +
+        geom_tippoint(aes(color = linkage_group), size = point_size) +
         geom_tiplab(aes(label = linkage_group),
-                    size = 3,
+                    size = tip_label_font_size,
                     color = "black",
                     offset = text_offset) +
         scale_color_brewer(palette = "Spectral", na.translate = FALSE) +
@@ -98,12 +110,12 @@ process_tree_with_outgroup <- function(tree_file,label,outgroup,OUTPUT_DIR,linka
             axis.ticks.x = element_blank(),
             axis.text.x = element_blank(),
             axis.title.x = element_blank()) +
-        geom_treescale(x = 0,
-                    y = 0,
-                    width = scale_width,
-                    fontsize = 2) +
+        geom_treescale(x = scale_bar_x,
+                    y = -1,
+                    width = scale_width) +
         ggtitle(plot_title)
-    
+
+
     # add root branch in
     root_y <- tree_with_linkages$data$y[
         tree_with_linkages$data$node ==
@@ -115,11 +127,23 @@ process_tree_with_outgroup <- function(tree_file,label,outgroup,OUTPUT_DIR,linka
                 x = -2 * text_offset,
                 xend = 0,
                 y = root_y,
-                yend = root_y)
+                yend = root_y) +
+        geom_label2(aes(x = x - label_offset, label=label, subset = !isTip & !is.na(as.numeric(label))),
+                fill = "lightyellow", color = "black", 
+                label.padding = bootstrap_label_pad, size = bootstrap_font_size, vjust = -0.3)
     
-    plot(tree_with_linkages)
-    ggsave(paste(OUTPUT_DIR, "/Fig4A_", label, ".jpg", sep=""), tree_with_linkages, width=4, height=4)
-    ggsave(paste(OUTPUT_DIR, "/Fig4A_", label,".pdf", sep=""), tree_with_linkages, width=4, height=4)
+    if(label=="WGS") {
+      tree_with_linkages_a <- flip(tree_with_linkages, 27, 7)
+      tree_with_linkages_b <- flip(tree_with_linkages_a, 16, 38)
+      tree_with_linkages_c <- flip(tree_with_linkages_b, 32,24)
+      tree_with_linkages_r <- flip(tree_with_linkages_c, 34,24)
+    } else {
+      tree_with_linkages_r <- tree_with_linkages
+    }
+
+    plot(tree_with_linkages_r)
+    ggsave(paste(OUTPUT_DIR, "/Fig4A_", label, ".jpg", sep=""), tree_with_linkages_r, width=4, height=4)
+    ggsave(paste(OUTPUT_DIR, "/Fig4A_", label,".pdf", sep=""), tree_with_linkages_r, width=4, height=4)
 }
 
 process_tree_with_outgroup(TR_TREE, "TR", outgroup, OUTPUT_DIR, linkage_groups)
