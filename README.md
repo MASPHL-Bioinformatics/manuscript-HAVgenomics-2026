@@ -1,5 +1,7 @@
 This repository contains the analysis code for "Genomic epidemiology as a tool for understanding drivers of hepatitis A community outbreaks in Massachusetts and New Hampshire" by Krasilnikova L, Bouton L, Brock-Fisher TM, Decker E, Godec M, and Thompson Z, et el. All code is organised as [Quarto](https://quarto.org) (`.qmd`) files written mostly in R and one in Python, with a few supporting R helper scripts.
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23572066.svg)](https://doi.org/10.5281/zenodo.23572066)
+
 ## Getting Started
 To run the code, you will need system R and Python installed. Notebooks have been tested with R 4.5.0 and 4.5.2 and various Python versions from 3.11.9-3.12.8.
 
